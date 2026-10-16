@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="GSB Field Ops">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
   --brown:#7A6A45;
@@ -168,6 +168,7 @@ h1.page-title{font-family:'Oswald',sans-serif;font-size:25px;margin:0 0 4px;lett
 .legal-block h4:first-child{margin-top:0;}
 .legal-block ul{margin:4px 0;padding-left:18px;}
 
+@media (pointer:coarse){ input:not([type=checkbox]):not([type=radio]), select, textarea{ font-size:16px !important; } }
 .sig-pad-wrap{border:1.5px dashed var(--line);border-radius:8px;background:#fff;position:relative;}
 canvas.sig-pad{width:100%;height:140px;display:block;touch-action:none;cursor:crosshair;}
 .sig-hint{position:absolute;bottom:8px;left:12px;font-size:11px;color:var(--muted);pointer-events:none;}
@@ -302,7 +303,7 @@ Contractor agrees to furnish all labor, materials, and equipment necessary to co
 **Demolition, Construction & Installation, Electrical & Plumbing** — as detailed in the project scope below.` },
   { id: 'contract-page-2', label: 'Construction Contract — Page 2', content: `## 3. Contract Price & Payment Schedule
 
-Payment schedule per the project's signed pricing (Deposit 10%, First Progress 40%, Second/Third/Fourth/Fifth Progress Payments, Final Payment). Late payments may incur a late fee of 5% per week on the outstanding balance, not to exceed the maximum rate permitted under Florida law. Work may be paused if a scheduled payment is more than 7 days past due.
+Payment schedule per the project's signed pricing (Deposit 10%, First Progress 40%, Second/Third/Fourth/Fifth Progress Payments, Final Payment). Late payments will incur a late fee of 5% per week on the outstanding balance, not to exceed the maximum rate permitted under Florida law. Work may be paused if a scheduled payment is more than 7 days past due.
 
 ## 4. Change Orders
 
@@ -414,7 +415,7 @@ Subcontractor is an independent contractor, not an employee, agent, or partner o
 
 ## 5. Licensing & Insurance
 
-Subcontractor represents that it holds all licenses required by Florida law and applicable local jurisdictions for its trade, and shall maintain general liability insurance and workers' compensation coverage as required by law, providing certificates of insurance upon request.
+Subcontractor shall provide GSB with a copy of all licenses required by Florida law and applicable local jurisdictions for its trade, and shall maintain general liability insurance and workers' compensation coverage as required by law. Subcontractor must show proof of coverage sufficient to cover any damages, losses, or claims caused by Subcontractor's work on any GSB job, and shall provide current certificates of insurance before starting work and upon request.
 
 ## 6. Quality of Work & Corrections
 
@@ -498,7 +499,7 @@ The parties will attempt good-faith negotiation before pursuing formal action. T
 ## 11. Entire Agreement
 
 This Agreement, together with any Orders issued under it, constitutes the entire agreement between the parties regarding its subject matter, and supersedes any prior discussions or agreements. It may be amended only in writing signed by both parties.` },
-  { id: 'estimate', label: 'Estimate — Terms & Disclaimer', content: `This is an estimate only and does not constitute a binding contract. Valid for 30 days from the date listed above.` },
+  { id: 'estimate', label: 'Estimate — Terms & Disclaimer', content: `This is an estimate only and does not constitute a binding contract. The pricing shown is not the final price; it is a ballpark of what the final price will be close to, and is subject to finalized pricing. Valid for 30 days from the date listed above.` },
 ];
 
 function roleByKey(key){ return DB.roles.find(r=>r.key===key) || {key, label:key, perms:{}}; }
@@ -612,17 +613,15 @@ function renderPublicEstimateSignBody(e){
           </div>
         ` : `
           <div class="section-label">Your Signature</div>
-          <div class="sig-pad-wrap"><canvas id="sig-public" class="sig-pad"></canvas><div class="sig-hint">Sign here with your finger or mouse</div></div>
+          ${signatureChooserHTML()}
           <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
-            <button class="btn ghost small" data-action="public-clear-sig">Clear</button>
             <button class="btn" data-action="public-submit-estimate-sign" data-id="${e.id}">Sign & Submit</button>
           </div>
           <div id="public-sign-error" class="login-err"></div>
         `}
       </div>
     </div>`;
-  if(!alreadySigned) initSignaturePad('sig-public');
-  document.querySelectorAll('[data-action="public-clear-sig"]').forEach(el=>el.addEventListener('click', ()=> clearSignature('sig-public')));
+  if(!alreadySigned) bindSignatureChooser();
   document.querySelectorAll('[data-action="public-print"]').forEach(el=>el.addEventListener('click', ()=> window.print()));
   document.querySelectorAll('[data-action="public-submit-estimate-sign"]').forEach(el=>el.addEventListener('click', async ()=>{
     const errEl = document.getElementById('public-sign-error');
@@ -635,9 +634,12 @@ function renderPublicEstimateSignBody(e){
         errEl.textContent = 'This estimate appears to have changed since it was sent to you. Please contact GSB General Construction at 954-605-4746 before signing.';
         return;
       }
-      const signature = getSignatureDataUrl('sig-public');
-      await docRef.update({ signature, signedAt: nowISO(), status:'signed' });
-      const updated = { ...fresh, signature, signedAt: nowISO(), status:'signed' };
+      const sg = await getChosenSignature();
+      if(!sg){ errEl.textContent = 'Please type your full name to sign.'; return; }
+      const signature = sg.dataUrl;
+      const sigExtra = { signatureType: sg.type, signatureTypedName: sg.typedName };
+      await docRef.update({ signature, ...sigExtra, signedAt: nowISO(), status:'signed' });
+      const updated = { ...fresh, signature, ...sigExtra, signedAt: nowISO(), status:'signed' };
       await fbDb.collection(FS_PREFIX+'notifications').doc(uid()).set({ id:uid(), msg:`${updated.clientName} signed their estimate remotely.`, ts: nowISO(), read:false });
       renderPublicEstimateSignBody(updated);
     }catch(err){
@@ -679,17 +681,15 @@ function renderPublicSignBody(c){
         ` : `
           <div class="field chk" style="margin-top:14px;"><input type="checkbox" id="public-read-confirm"> I have read this entire document and agree to its terms</div>
           <div class="section-label">Your Signature</div>
-          <div class="sig-pad-wrap"><canvas id="sig-public" class="sig-pad"></canvas><div class="sig-hint">Sign here with your finger or mouse</div></div>
+          ${signatureChooserHTML()}
           <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
-            <button class="btn ghost small" data-action="public-clear-sig">Clear</button>
             <button class="btn" data-action="public-submit-sign" data-id="${c.id}">Sign & Submit</button>
           </div>
           <div id="public-sign-error" class="login-err"></div>
         `}
       </div>
     </div>`;
-  if(!alreadySigned) initSignaturePad('sig-public');
-  document.querySelectorAll('[data-action="public-clear-sig"]').forEach(el=>el.addEventListener('click', ()=> clearSignature('sig-public')));
+  if(!alreadySigned) bindSignatureChooser();
   document.querySelectorAll('[data-action="public-print"]').forEach(el=>el.addEventListener('click', ()=> window.print()));
   document.querySelectorAll('[data-action="public-submit-sign"]').forEach(el=>el.addEventListener('click', async ()=>{
     const confirmed = document.getElementById('public-read-confirm');
@@ -705,9 +705,12 @@ function renderPublicSignBody(c){
         errEl.textContent = 'This contract appears to have changed since it was sent to you. Please contact GSB General Construction at 954-605-4746 before signing — do not sign a document that looks different from what you expected.';
         return;
       }
-      const signature = getSignatureDataUrl('sig-public');
-      await docRef.update({ signature, signedAt: nowISO(), status:'signed' });
-      const updated = { ...fresh, signature, signedAt: nowISO(), status:'signed' };
+      const sg = await getChosenSignature();
+      if(!sg){ errEl.textContent = 'Please type your full name to sign.'; return; }
+      const signature = sg.dataUrl;
+      const sigExtra = { signatureType: sg.type, signatureTypedName: sg.typedName };
+      await docRef.update({ signature, ...sigExtra, signedAt: nowISO(), status:'signed' });
+      const updated = { ...fresh, signature, ...sigExtra, signedAt: nowISO(), status:'signed' };
       await publicAutoCreateOrAttachClient(updated);
       await fbDb.collection(FS_PREFIX+'notifications').doc(uid()).set({ id:uid(), msg:`${updated.clientName} signed their contract remotely.`, ts: nowISO(), read:false });
       renderPublicSignBody(updated);
@@ -778,6 +781,21 @@ async function loadAll(){
   if(DB.legalDocs.length===0){
     DB.legalDocs = JSON.parse(JSON.stringify(DEFAULT_LEGAL_DOCS));
     await save('legalDocs');
+  }
+  // One-time wording updates for already-saved contract text (only touches the exact old phrases)
+  {
+    let changed=false;
+    const FIXES=[
+      ["Late payments may incur a late fee","Late payments will incur a late fee"],
+      ["Subcontractor represents that it holds all licenses required by Florida law and applicable local jurisdictions for its trade, and shall maintain general liability insurance and workers' compensation coverage as required by law, providing certificates of insurance upon request.",
+       "Subcontractor shall provide GSB with a copy of all licenses required by Florida law and applicable local jurisdictions for its trade, and shall maintain general liability insurance and workers' compensation coverage as required by law. Subcontractor must show proof of coverage sufficient to cover any damages, losses, or claims caused by Subcontractor's work on any GSB job, and shall provide current certificates of insurance before starting work and upon request."],
+      ["This is an estimate only and does not constitute a binding contract. Valid for 30 days","This is an estimate only and does not constitute a binding contract. The pricing shown is not the final price; it is a ballpark of what the final price will be close to, and is subject to finalized pricing. Valid for 30 days"]
+    ];
+    DB.legalDocs.forEach(d=>{
+      if(!d || typeof d.content!=='string') return;
+      FIXES.forEach(([a,b])=>{ if(d.content.includes(a)){ d.content=d.content.split(a).join(b); changed=true; } });
+    });
+    if(changed) await save('legalDocs');
   }
   if(DB.legalDocSettings.length===0){
     DB.legalDocSettings = [
@@ -857,6 +875,7 @@ async function migrateData(){
   DB.onsite.forEach(f=>{
     if(!f.photos){ f.photos=[]; onsiteChanged = true; }
     if(f.floorPlan===undefined){ f.floorPlan=null; onsiteChanged = true; }
+    if(!Array.isArray(f.sketches)){ f.sketches = f.floorPlan ? [{id:uid(), name:'Sketch 1', data:f.floorPlan, createdAt:f.dateCreated||nowISO()}] : []; onsiteChanged = true; }
     if(f.beforePhotos===undefined){ f.beforePhotos=[]; onsiteChanged = true; }
     if(f.pricingBreakdown===undefined){ f.pricingBreakdown=null; onsiteChanged = true; }
     if(f.archived===undefined){ f.archived=false; onsiteChanged = true; }
@@ -924,6 +943,128 @@ const ICONS = {
 };
 
 /* ================= SIGNATURE PAD ================= */
+
+/* ---- iPad/iPhone keyboard helpers ----
+   iOS only shows the keyboard when focus happens inside a real tap. Fields focused by code (e.g. sketch popups)
+   end up "focused" with no keyboard, and tapping an already-focused field does nothing. These fix both cases. */
+function keyboardLooksHidden(){
+  const vv = window.visualViewport;
+  return !vv || vv.height > window.innerHeight * 0.9;
+}
+function isTextField(el){
+  if(!el || !el.matches) return false;
+  if(el.matches('textarea')) return true;
+  if(!el.matches('input')) return false;
+  return !/^(checkbox|radio|file|range|button|submit|color|date|time|datetime-local|hidden)$/i.test(el.type||'text');
+}
+function focusWithKeyboard(input){
+  if(!input) return;
+  input.focus();
+  try{ input.select(); }catch(e){}
+}
+document.addEventListener('touchend', (e)=>{
+  const t = e.target;
+  if(isTextField(t) && document.activeElement===t && keyboardLooksHidden()){
+    const start = t.selectionStart, end = t.selectionEnd;
+    t.blur(); t.focus();
+    try{ if(start!=null) t.setSelectionRange(start, end); }catch(_){}
+  }
+}, true);
+
+/* ---- Send-link dialog (works even when the device has no default mail app) ---- */
+function signBaseUrl(){
+  const h = window.location.href.split('?')[0].split('#')[0];
+  return /^https?:/i.test(h) ? h : 'https://gsbgeneralconstruction.github.io/GSB-Field-Ops/';
+}
+function openSendLinkDialog({title, email, subject, body, link, onEmail}){
+  const old = document.getElementById('send-link-overlay'); if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'send-link-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(20,18,14,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:14px;';
+  ov.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:520px;width:100%;max-height:92vh;overflow:auto;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.3);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><h2 class="page-title" style="margin:0;font-size:18px;">${esc(title)}</h2><button class="close-x" id="sl-close">×</button></div>
+    <div class="field"><label>Client's email</label><input type="email" id="sl-email" value="${esc(email||'')}" placeholder="client@email.com"></div>
+    <div class="field"><label>Message</label><textarea id="sl-body" rows="9" style="width:100%;">${esc(body)}</textarea></div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+      <button class="btn" id="sl-mail">Open in Email App</button>
+      <button class="btn ghost" id="sl-share">Share…</button>
+      <button class="btn ghost" id="sl-copy">Copy Message</button>
+      <button class="btn ghost" id="sl-copylink">Copy Link Only</button>
+    </div>
+    <div class="subtle" id="sl-note" style="margin-top:10px;">If the email app doesn't open, use Copy Message and paste it into any email or text to the client.</div>
+  </div>`;
+  document.body.appendChild(ov);
+  const $ = id => ov.querySelector('#'+id);
+  const note = t => { $('sl-note').textContent = t; };
+  const copy = async (t, msg) => {
+    try{ await navigator.clipboard.writeText(t); note(msg); }
+    catch(e){ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy'); note(msg);}catch(_){ note('Could not copy — select the text and copy it manually.'); } ta.remove(); }
+  };
+  $('sl-close').onclick = ()=> ov.remove();
+  ov.addEventListener('click', e=>{ if(e.target===ov) ov.remove(); });
+  $('sl-mail').onclick = ()=>{
+    const to = $('sl-email').value.trim();
+    if(onEmail) onEmail(to);
+    const a = document.createElement('a');
+    a.href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent($('sl-body').value)}`;
+    document.body.appendChild(a); a.click(); a.remove();
+    note('Opening your email app… if nothing happens, use Copy Message instead.');
+  };
+  $('sl-share').onclick = async ()=>{
+    if(navigator.share){ try{ await navigator.share({title:subject, text:$('sl-body').value}); }catch(e){} }
+    else copy($('sl-body').value, 'Sharing isn\'t available here, so the message was copied instead.');
+  };
+  $('sl-copy').onclick = ()=> copy($('sl-body').value, 'Message copied — paste it into an email or text.');
+  $('sl-copylink').onclick = ()=> copy(link, 'Link copied.');
+}
+
+/* ---- Draw-or-type signature chooser (client signing pages) ---- */
+function signatureChooserHTML(){
+  return `<div class="sig-choose" style="display:flex;gap:8px;margin-bottom:8px;">
+      <button type="button" class="btn small" data-sigmode="draw">✍️ Draw with finger</button>
+      <button type="button" class="btn ghost small" data-sigmode="type">⌨️ Type my name</button>
+    </div>
+    <div id="sig-draw-box">
+      <div class="sig-pad-wrap"><canvas id="sig-public" class="sig-pad"></canvas><div class="sig-hint">Sign here with your finger or mouse</div></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="btn ghost small" data-action="public-clear-sig">Clear</button></div>
+    </div>
+    <div id="sig-type-box" style="display:none;">
+      <input type="text" id="sig-typed-name" placeholder="Type your full legal name" autocomplete="name" style="width:100%;font-size:16px;padding:10px;border:1px solid var(--line);border-radius:8px;">
+      <div id="sig-typed-preview" style="margin-top:8px;border:1.5px dashed var(--line);border-radius:8px;background:#fff;min-height:90px;display:flex;align-items:center;justify-content:center;font-family:'Dancing Script','Brush Script MT',cursive;font-size:44px;color:#2A261E;padding:6px 12px;text-align:center;overflow:hidden;"></div>
+      <div class="subtle" style="margin-top:6px;">By typing your name you agree it is the same as signing by hand.</div>
+    </div>`;
+}
+function bindSignatureChooser(){
+  window._sigMode = 'draw';
+  initSignaturePad('sig-public');
+  const draw = document.getElementById('sig-draw-box'), typ = document.getElementById('sig-type-box');
+  document.querySelectorAll('[data-sigmode]').forEach(b=>b.addEventListener('click', ()=>{
+    window._sigMode = b.dataset.sigmode;
+    draw.style.display = window._sigMode==='draw' ? '' : 'none';
+    typ.style.display = window._sigMode==='type' ? '' : 'none';
+    document.querySelectorAll('[data-sigmode]').forEach(x=> x.classList.toggle('ghost', x!==b));
+  }));
+  const inp = document.getElementById('sig-typed-name'), prev = document.getElementById('sig-typed-preview');
+  inp.addEventListener('input', ()=>{ prev.textContent = inp.value; });
+  document.querySelectorAll('[data-action="public-clear-sig"]').forEach(el=>el.addEventListener('click', ()=> clearSignature('sig-public')));
+}
+async function getChosenSignature(){
+  if(window._sigMode==='type'){
+    const name = (document.getElementById('sig-typed-name').value||'').trim();
+    if(!name) return null;
+    try{ await document.fonts.load('600 64px "Dancing Script"'); }catch(e){}
+    const c = document.createElement('canvas'); c.width = 900; c.height = 240;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = 'rgba(255,255,255,0)'; ctx.clearRect(0,0,c.width,c.height);
+    ctx.fillStyle = '#2A261E'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    let size = 96;
+    do { ctx.font = `600 ${size}px "Dancing Script","Brush Script MT",cursive`; size -= 4; } while(ctx.measureText(name).width > 840 && size > 24);
+    ctx.fillText(name, 450, 120);
+    return {dataUrl: c.toDataURL('image/png'), type:'typed', typedName:name};
+  }
+  return {dataUrl: getSignatureDataUrl('sig-public'), type:'drawn', typedName:null};
+}
+
 function initSignaturePad(canvasId){
   const canvas = document.getElementById(canvasId);
   if(!canvas) return;
@@ -1910,7 +2051,7 @@ function showInlinePopup(logicalX, logicalY, config){
     </div>`;
   document.body.appendChild(pop);
   const input = document.getElementById('sketch-inline-input');
-  input.focus(); input.select();
+  focusWithKeyboard(input);
   const unitSelect = document.getElementById('sketch-inline-unit');
   if(unitSelect) unitSelect.addEventListener('change', ()=>{ chosenUnit = unitSelect.value; });
   const cleanup = ()=>{ const el = document.getElementById('sketch-inline-popup'); if(el) el.remove(); };
@@ -1964,7 +2105,7 @@ function promptCalibrateLine(strokeObj){
     </div>`;
   document.body.appendChild(pop);
   const lengthInput = document.getElementById('line-edit-length');
-  lengthInput.focus(); lengthInput.select();
+  focusWithKeyboard(lengthInput);
   const unitSelect = document.getElementById('line-edit-unit');
   unitSelect.addEventListener('change', ()=>{ chosenUnit = unitSelect.value; });
   const cleanup = ()=>{ const el = document.getElementById('sketch-inline-popup'); if(el) el.remove(); };
@@ -2181,7 +2322,7 @@ function attachCompanyGateHandlers(){
   const resendBtn = document.querySelector('[data-action="resend-gate-link"]');
   if(resendBtn) resendBtn.addEventListener('click', ()=>{ STATE.companyGate = null; showGateScreen(); });
 }
-const COMPANY_GATE_ENABLED = true; // requires Email Link sign-in enabled + your live domain authorized in Firebase (see notes)
+const COMPANY_GATE_ENABLED = false; // temporarily off for iPad UI testing — flip back to true once you're done, quota resets daily
 async function bootSequence(){
   const signToken = new URLSearchParams(window.location.search).get('sign');
   if(signToken){ await loadPublicSignPage(signToken); return; }
@@ -2574,6 +2715,19 @@ function onsiteFormView(){
         <div class="field"><label>Approx. Age of Structure</label><input id="os-age"></div>
       </div>
       <div class="field chk" style="margin-top:4px;"><input type="checkbox" id="os-isnew"> This is a new client (not in our system yet)</div>
+      <div id="os-newclient-panel" style="display:none;border:1px solid var(--line);border-radius:10px;padding:14px;margin:8px 0 4px;background:var(--panel,#faf8f3);">
+        <div class="section-label" style="margin-top:0;">New Client Details <span class="tag category">Saved to Clients when you submit</span></div>
+        <div class="subtle" style="margin-bottom:8px;">Name and phone come from the fields above.</div>
+        <div class="form-grid">
+          <div class="field"><label>Company (optional)</label><input id="os-nc-company"></div>
+          <div class="field"><label>Secondary Phone (optional)</label><input id="os-nc-phone2"></div>
+          <div class="field"><label>Email</label><input id="os-nc-email" type="email" placeholder="client@email.com"></div>
+          <div class="field"><label>Preferred Contact</label><select id="os-nc-preferred"><option>Call</option><option>Text</option><option>Email</option></select></div>
+          <div class="field"><label>How They Heard About Us</label><input id="os-nc-howheard"></div>
+          <div class="field"><label>Referred By (optional)</label><input id="os-nc-referred"></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea id="os-nc-notes"></textarea></div>
+      </div>
 
       <div class="section-label">Scope Walkthrough Notes</div>
       <div class="field"><label>Demolition</label><textarea id="os-demo"></textarea></div>
@@ -2937,7 +3091,7 @@ function estimateDetailView(e){
       ${!DB.contracts.find(c=>c.estimateId===e.id) ? `<div style="margin-top:16px;display:flex;justify-content:flex-end;"><button class="btn" data-action="build-contract" data-id="${e.id}">Build Contract From This Estimate</button></div>` :
       `<div style="margin-top:16px;display:flex;justify-content:flex-end;"><button class="btn ghost" data-action="view-contract" data-id="${DB.contracts.find(c=>c.estimateId===e.id).id}">View Contract</button></div>`}
     ` : `
-      ${e.sentRemote ? `<div class="banner-note">✓ Sent for remote signature ${fmtDateTime(e.sentRemoteAt)} to ${esc(e.clientEmail||'client email on file')}. They can open the link from their email and sign on any phone or computer — no account needed. <button class="btn ghost small" style="margin-top:6px;" data-action="copy-estimate-sign-link" data-id="${e.id}">Copy Signing Link</button></div>` : `
+      ${e.sentRemote ? `<div class="banner-note">✓ Sent for remote signature ${fmtDateTime(e.sentRemoteAt)} to ${esc(e.clientEmail||'client email on file')}. They can open the link from their email and sign on any phone or computer — no account needed. <button class="btn ghost small" style="margin-top:6px;" data-action="copy-estimate-sign-link" data-id="${e.id}">Copy Signing Link</button> <button class="btn ghost small" style="margin-top:6px;" data-action="send-remote-estimate" data-id="${e.id}">Send Again</button></div>` : `
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
         <button class="btn ghost small" data-action="send-remote-estimate" data-id="${e.id}">Send for Remote Signature</button>
       </div>`}
@@ -2961,6 +3115,7 @@ function contractsListView(){
         <div style="display:flex;gap:8px;align-items:center;">
           <span class="tag ${c.status==='signed'?'reviewed':c.status==='locked'?'category':'pending'}">${c.status.toUpperCase()}</span>
           <button class="btn ghost small" data-action="view-contract" data-id="${c.id}">Open</button>
+          <button class="btn ghost small" data-action="del-contract" data-id="${c.id}">Delete</button>
         </div>
       </div>`).join('')}
   </div>`;
@@ -3146,21 +3301,66 @@ function renderPricingCalculatorPage(){
       <button class="btn" data-pricing-action="use-total">Save & Build Estimate</button>
     </div>`;
 }
+function ensureSketches(f){
+  if(!Array.isArray(f.sketches)) f.sketches = f.floorPlan ? [{id:uid(), name:'Sketch 1', data:f.floorPlan, createdAt:f.dateCreated||nowISO()}] : [];
+  return f.sketches;
+}
+function syncPrimarySketch(f){ f.floorPlan = f.sketches.length ? f.sketches[f.sketches.length-1].data : null; }
+function projectStatusForOnsite(f){
+  for(const c of DB.clients){
+    const pr = (c.projects||[]).find(x=>x.onsiteId===f.id);
+    if(pr) return pr.completed ? 'completed' : 'signed';
+  }
+  return f.archived ? 'signed' : 'ongoing';
+}
+function sketchRow(f){
+  const n = ensureSketches(f).length;
+  const st = projectStatusForOnsite(f);
+  const tag = st==='completed' ? '<span class="tag reviewed">COMPLETED</span>' : st==='signed' ? '<span class="tag category">SIGNED / IN PROGRESS</span>' : '<span class="tag pending">ESTIMATING</span>';
+  return `<div class="list-row">
+    <div class="main"><b>${esc(f.clientName)}</b><div class="meta">${esc(f.propertyAddress)} &nbsp;·&nbsp; ${fmtDate(f.date)} &nbsp;·&nbsp; ${n===0?'No sketches yet':n+(n===1?' sketch':' sketches')}</div></div>
+    <div style="display:flex;gap:8px;align-items:center;">${tag}<button class="btn ghost small" data-action="open-sketch-project" data-id="${f.id}">Open</button></div>
+  </div>`;
+}
+function renderSketchProjectView(f){
+  const sk = ensureSketches(f);
+  const st = projectStatusForOnsite(f);
+  return `
+    <button class="btn ghost small" style="margin-bottom:14px;" data-action="back-sketch-projects">← All Projects</button>
+    <h1 class="page-title" style="margin-bottom:2px;">${esc(f.clientName)}</h1>
+    <div class="subtle">${esc(f.propertyAddress)} &nbsp;·&nbsp; ${st==='completed'?'Completed project':st==='signed'?'Signed — in progress':'Estimating'}</div>
+    <div style="margin:14px 0;"><button class="btn" data-action="new-sketch" data-id="${f.id}">+ New Sketch</button></div>
+    ${sk.length===0 ? `<div class="card"><div class="subtle" style="padding:10px 0;">No sketches for this project yet — tap "+ New Sketch" to draw one.</div></div>` :
+      `<div class="photo-grid">${sk.map(x=>`
+        <div class="photo-card">
+          ${x.data && x.data.snapshot ? `<img src="${x.data.snapshot}">` : ''}
+          <div class="cap-wrap" style="font-size:12.5px;color:var(--ink);"><b>${esc(x.name||'Sketch')}</b><div class="subtle" style="font-size:11px;">${fmtDate(x.updatedAt||x.createdAt)}</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+              <button type="button" class="btn small" data-action="edit-sketch" data-id="${f.id}" data-sid="${x.id}">Open / Edit</button>
+              <button type="button" class="btn ghost small" data-action="rename-sketch" data-id="${f.id}" data-sid="${x.id}">Rename</button>
+              <button type="button" class="btn ghost small" data-action="del-sketch" data-id="${f.id}" data-sid="${x.id}">Delete</button>
+            </div></div>
+        </div>`).join('')}</div>`}`;
+}
 function renderSketchesPage(){
-  const activeWorksheets = [...DB.onsite].filter(f=>!f.archived).sort((a,b)=> b.dateCreated.localeCompare(a.dateCreated));
+  if(STATE.activeSketchProjectId){
+    const f = DB.onsite.find(x=>x.id===STATE.activeSketchProjectId);
+    if(f) return renderSketchProjectView(f);
+    STATE.activeSketchProjectId = null;
+  }
+  const byNew = (a,b)=> (b.dateCreated||'').localeCompare(a.dateCreated||'');
+  const ongoing = DB.onsite.filter(f=>!f.archived).sort(byNew);
+  const past = DB.onsite.filter(f=>f.archived).sort(byNew);
   return `
     <h1 class="page-title">Sketches</h1>
-    <div class="subtle">Pick a job to add or edit its floor plan sketch. New worksheets show up here the moment they're submitted.</div>
+    <div class="subtle">Pick a project to see its sketches, edit them, or draw a new one. Sketches stay with the project after it's signed and completed.</div>
+    <div class="section-label">Ongoing Projects</div>
     <div class="card" style="padding:8px 20px;">
-      ${activeWorksheets.length===0 ? emptyState('No ongoing jobs yet','A job shows up here as soon as an on-site worksheet is submitted for it.') :
-        activeWorksheets.map(f=>`
-        <div class="list-row">
-          <div class="main"><b>${esc(f.clientName)}</b><div class="meta">${esc(f.propertyAddress)} &nbsp;·&nbsp; ${fmtDate(f.date)} &nbsp;·&nbsp; ${f.floorPlan ? 'Has a sketch' : 'No sketch yet'}</div></div>
-          <div style="display:flex;gap:8px;">
-            ${f.floorPlan ? `<button class="btn ghost small" data-action="del-onsite-sketch" data-id="${f.id}">Delete Sketch</button>` : ''}
-            <button class="btn ghost small" data-action="open-sketch-for-onsite" data-id="${f.id}">${f.floorPlan ? 'Open Sketch' : '+ Add Sketch'}</button>
-          </div>
-        </div>`).join('')}
+      ${ongoing.length===0 ? emptyState('No ongoing projects yet','A project shows up here as soon as an on-site worksheet is submitted.') : ongoing.map(sketchRow).join('')}
+    </div>
+    <div class="section-label">Signed &amp; Completed Projects</div>
+    <div class="card" style="padding:8px 20px;">
+      ${past.length===0 ? `<div class="subtle" style="padding:10px 0;">Projects move here after the contract is signed. Their sketches are kept.</div>` : past.map(sketchRow).join('')}
     </div>`;
 }
 function renderMaterialsPage(){
@@ -3233,7 +3433,7 @@ function contractDetailView(c){
   const constructionSettings = legalSlotSettings('construction');
   const isPdfMode = constructionSettings.mode==='pdf';
   return `
-    <div class="modal-head"><h2 class="page-title" style="margin:0">Contract — ${esc(c.clientName)}</h2><button class="close-x" data-action="close-modal">×</button></div>
+    <div class="modal-head"><h2 class="page-title" style="margin:0">Contract — ${esc(c.clientName)}</h2><div style="display:flex;gap:8px;align-items:center;"><button class="btn ghost small" data-action="del-contract" data-id="${c.id}">Delete</button><button class="close-x" data-action="close-modal">×</button></div></div>
     <div style="border:1px solid var(--line);border-radius:8px;padding:22px;background:#fff;">
       <div class="mono" style="font-size:11px;color:var(--muted);">13311 SW 9th Pl, Davie, FL 33325 | 954-605-4746 | Office@gsbconstructions.com</div>
       <div style="font-size:10.5px;color:var(--muted);margin-bottom:12px;">Florida License #CGC1539336</div>
@@ -3263,7 +3463,7 @@ function contractDetailView(c){
         ${p.canEmailClients ? `<button class="btn small" data-action="email-contract" data-id="${c.id}">Send Email</button>` : ''}
       </div>
     ` : `
-      ${c.sentRemote ? `<div class="banner-note">✓ Sent for remote signature ${fmtDateTime(c.sentRemoteAt)} to ${esc(c.clientEmail||'client email on file')}. They can open the link from their email and sign on any phone or computer — no account needed. <button class="btn ghost small" style="margin-top:6px;" data-action="copy-sign-link" data-id="${c.id}">Copy Signing Link</button></div>` : `
+      ${c.sentRemote ? `<div class="banner-note">✓ Sent for remote signature ${fmtDateTime(c.sentRemoteAt)} to ${esc(c.clientEmail||'client email on file')}. They can open the link from their email and sign on any phone or computer — no account needed. <button class="btn ghost small" style="margin-top:6px;" data-action="copy-sign-link" data-id="${c.id}">Copy Signing Link</button> <button class="btn ghost small" style="margin-top:6px;" data-action="send-remote-contract" data-id="${c.id}">Send Again</button></div>` : `
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
         <button class="btn ghost small" data-action="send-remote-contract" data-id="${c.id}">Send for Remote Signature</button>
       </div>`}
@@ -3348,6 +3548,7 @@ function projectCardHTML(c, pr, opts){
       <div class="section-label" style="margin-top:16px;">Project Documents</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${pr.onsiteId ? `<button class="btn ghost small" data-action="view-project-onsite" data-id="${pr.onsiteId}">On-Site Worksheet</button>` : ''}
+        ${pr.onsiteId && DB.onsite.find(o=>o.id===pr.onsiteId) ? `<button class="btn ghost small" data-action="view-project-sketches" data-id="${pr.onsiteId}">Sketches (${ensureSketches(DB.onsite.find(o=>o.id===pr.onsiteId)).length})</button>` : ''}
         ${pr.estimateId ? `<button class="btn ghost small" data-action="view-project-estimate" data-id="${pr.estimateId}">Estimate</button>` : ''}
         ${pr.contractId ? `<button class="btn ghost small" data-action="view-project-contract" data-id="${pr.contractId}">Contract</button>` : ''}
       </div>` : ''}
@@ -3393,28 +3594,34 @@ function projectCardHTML(c, pr, opts){
     </div>`;
 }
 
-function newClientForm(){
-  return `<div class="modal-head"><h2 class="page-title" style="margin:0">Add New Client</h2><button class="close-x" data-action="close-modal">×</button></div>
+function newClientForm(ex){
+  const e = ex || {};
+  const v = k => esc(e[k]||'');
+  const pref = e.preferredContact||'Call';
+  return `<div class="modal-head"><h2 class="page-title" style="margin:0">${ex?'Edit Client':'Add New Client'}</h2><button class="close-x" data-action="close-modal">×</button></div>
     <div class="form-grid">
-      <div class="field"><label>Client Name</label><input id="nc-name" placeholder="Full name"></div>
-      <div class="field"><label>Company (optional)</label><input id="nc-company"></div>
-      <div class="field"><label>Primary Phone</label><input id="nc-phone"></div>
-      <div class="field"><label>Secondary Phone (optional)</label><input id="nc-phone2"></div>
-      <div class="field"><label>Email</label><input id="nc-email" type="email"></div>
-      <div class="field"><label>Preferred Contact</label><select id="nc-preferred"><option>Call</option><option>Text</option><option>Email</option></select></div>
-      <div class="field"><label>How They Heard About Us</label><input id="nc-howheard"></div>
-      <div class="field"><label>Referred By (optional)</label><input id="nc-referred"></div>
+      <div class="field"><label>Client Name</label><input id="nc-name" placeholder="Full name" value="${v('name')}"></div>
+      <div class="field"><label>Company (optional)</label><input id="nc-company" value="${v('company')}"></div>
+      <div class="field"><label>Primary Phone</label><input id="nc-phone" value="${v('primaryPhone')}"></div>
+      <div class="field"><label>Secondary Phone (optional)</label><input id="nc-phone2" value="${v('secondaryPhone')}"></div>
+      <div class="field"><label>Email</label><input id="nc-email" type="email" value="${v('email')}"></div>
+      <div class="field"><label>Preferred Contact</label><select id="nc-preferred">${['Call','Text','Email'].map(o=>`<option ${pref===o?'selected':''}>${o}</option>`).join('')}</select></div>
+      <div class="field"><label>How They Heard About Us</label><input id="nc-howheard" value="${v('howHeard')}"></div>
+      <div class="field"><label>Referred By (optional)</label><input id="nc-referred" value="${v('referredBy')}"></div>
+      ${ex ? `<div class="field"><label>Mailing Address</label><input id="nc-mailing" value="${v('mailingAddress')}"></div>
+      <div class="field"><label>Property Address</label><input id="nc-property" value="${v('propertyAddress')}"></div>` : ''}
     </div>
-    <div class="field"><label>Notes</label><textarea id="nc-notes"></textarea></div>
-    <div class="subtle">No address here — that gets added per-project, since a client's project address can change or they may have more than one.</div>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;"><button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn" data-action="save-new-client">Add Client</button></div>`;
+    <div class="field"><label>Notes</label><textarea id="nc-notes">${v('notes')}</textarea></div>
+    ${ex ? '' : '<div class="subtle">No address here — that gets added per-project, since a client\'s project address can change or they may have more than one.</div>'}
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;"><button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn" data-action="save-new-client" data-id="${ex?ex.id:''}">${ex?'Save Changes':'Add Client'}</button></div>`;
 }
 function clientDetailView(c){
   const p = perms();
   return `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
       <button class="btn ghost small" data-action="back-clients">← Back to Clients</button>
-      <button class="btn ghost small" data-action="del-client" data-id="${c.id}">Delete Client</button>
+      <div style="display:flex;gap:8px;"><button class="btn small" data-action="edit-client" data-id="${c.id}">Edit Client Info</button>
+      <button class="btn ghost small" data-action="del-client" data-id="${c.id}">Delete Client</button></div>
     </div>
     <div class="detail-panel">
       <div class="modal-head"><div><h2 class="page-title" style="margin:0">${esc(c.name)}</h2><div class="subtle" style="margin:2px 0 0">${esc(c.company)}</div></div></div>
@@ -3803,6 +4010,7 @@ function renderModal(){
   if(m.type==='contract-form') inner = contractForm(m.data);
   if(m.type==='new-material-form') inner = newMaterialForm(m.data);
   if(m.type==='new-client-form') inner = newClientForm();
+  if(m.type==='edit-client-form') inner = newClientForm(m.data);
   if(m.type==='contract-detail') inner = contractDetailView(m.data);
   if(m.type==='warranty-form') inner = warrantyForm(m.cid, m.pid);
   if(m.type==='permit-form') inner = permitForm(m.cid, m.pid);
@@ -3860,7 +4068,7 @@ function warrantyForm(cid,pid){
 
 /* ================= EVENTS ================= */
 function attachHandlers(){
-  document.querySelectorAll('[data-nav]').forEach(el=>el.addEventListener('click', ()=>{ STATE.view=el.dataset.nav; STATE.activeOnsiteId=null; STATE.activeClientId=null; STATE.notifOpen=false; render(); }));
+  document.querySelectorAll('[data-nav]').forEach(el=>el.addEventListener('click', ()=>{ STATE.view=el.dataset.nav; STATE.activeSketchProjectId=null; STATE.activeOnsiteId=null; STATE.activeClientId=null; STATE.notifOpen=false; render(); }));
   document.querySelectorAll('[data-subtab]').forEach(el=>el.addEventListener('click', ()=>{ const [g,k]=el.dataset.subtab.split(':'); STATE.subtab[g]=k; STATE.activeOnsiteId=null; render(); }));
   bindClick('logout', ()=>{ STATE.user=null; STATE.view='home'; render(); });
   bindClick('toggle-notif', ()=>{ STATE.notifOpen=!STATE.notifOpen; DB.notifications.forEach(n=>n.read=true); render(); });
@@ -3940,6 +4148,11 @@ Office@gsbconstructions.com`);
     window.location.href = `mailto:${encodeURIComponent(v.email)}?subject=${subject}&body=${bodyText}`;
   }));
 
+  const isNewBox = document.getElementById('os-isnew');
+  if(isNewBox) isNewBox.addEventListener('change', ()=>{
+    const panel = document.getElementById('os-newclient-panel');
+    if(panel) panel.style.display = isNewBox.checked ? '' : 'none';
+  });
   const pickClientSelect = document.getElementById('os-pick-client');
   if(pickClientSelect) pickClientSelect.addEventListener('change', ()=>{
     const c = DB.clients.find(x=>x.id===pickClientSelect.value);
@@ -3947,7 +4160,7 @@ Office@gsbconstructions.com`);
     const nameEl = document.getElementById('os-clientName'), phoneEl = document.getElementById('os-phone'), isNewEl = document.getElementById('os-isnew');
     if(nameEl) nameEl.value = c.name;
     if(phoneEl) phoneEl.value = c.primaryPhone || '';
-    if(isNewEl) isNewEl.checked = false;
+    if(isNewEl){ isNewEl.checked = false; const pnl=document.getElementById('os-newclient-panel'); if(pnl) pnl.style.display='none'; }
     // property address intentionally left alone — that's specific to this project, not the client
   });
   bindClick('submit-onsite', async ()=>{
@@ -3959,10 +4172,13 @@ Office@gsbconstructions.com`);
       date: val('os-date'), clientName, propertyAddress: val('os-address'), phone: val('os-phone'), propType: val('os-propType'), age: val('os-age'),
       demo: val('os-demo'), constr: val('os-constr'), ep: val('os-ep'), measure: val('os-measure'),
       subs, subOther:'', flags, owner: val('os-owner'), followup: val('os-followup'),
-      isNewClient: document.getElementById('os-isnew').checked, editHistory:[],
-      photos: STATE.newOnsitePhotos.slice(), beforePhotos: STATE.newOnsiteBeforePhotos.slice(), floorPlan: STATE.newOnsiteFloorPlan || null };
+      isNewClient: document.getElementById('os-isnew').checked, email: (document.getElementById('os-isnew').checked ? val('os-nc-email') : ''), editHistory:[],
+      photos: STATE.newOnsitePhotos.slice(), beforePhotos: STATE.newOnsiteBeforePhotos.slice(), floorPlan: STATE.newOnsiteFloorPlan || null,
+      sketches: STATE.newOnsiteFloorPlan ? [{id:uid(), name:'Sketch 1', data:STATE.newOnsiteFloorPlan, createdAt:nowISO(), updatedAt:nowISO()}] : [] };
     DB.onsite.push(record); await saveRecord('onsite', record);
-    await ensureClientExists(clientName, val('os-phone'));
+    await ensureClientExists(clientName, val('os-phone'), document.getElementById('os-isnew').checked ? {
+      company: val('os-nc-company'), secondaryPhone: val('os-nc-phone2'), email: val('os-nc-email'),
+      preferredContact: val('os-nc-preferred'), howHeard: val('os-nc-howheard'), referredBy: val('os-nc-referred'), notes: val('os-nc-notes') } : null);
     pushNotification(`${record.submittedBy} submitted a new On-Site Worksheet for ${clientName}.`);
     STATE.newOnsitePhotos = [];
     STATE.newOnsiteBeforePhotos = [];
@@ -3976,6 +4192,16 @@ Office@gsbconstructions.com`);
     const idToDelete = e.id;
     DB.estimates = DB.estimates.filter(x=>x.id!==idToDelete);
     deleteRecord('estimates', idToDelete);
+    STATE.modal = null;
+    render();
+  }));
+  document.querySelectorAll('[data-action="del-contract"]').forEach(el=>el.addEventListener('click', ()=>{
+    const c = DB.contracts.find(x=>x.id===el.dataset.id);
+    if(!c) return;
+    if(!confirm(`Delete the contract for ${c.clientName}? This can't be undone.`)) return;
+    const idToDelete = c.id;
+    DB.contracts = DB.contracts.filter(x=>x.id!==idToDelete);
+    deleteRecord('contracts', idToDelete);
     STATE.modal = null;
     render();
   }));
@@ -3995,8 +4221,12 @@ Office@gsbconstructions.com`);
   document.querySelectorAll('[data-action="view-onsite-floorplan"]').forEach(el=>el.addEventListener('click', ()=>{
     const f = DB.onsite.find(x=>x.id===el.dataset.id);
     const locked = isLocked(f);
-    openSketchEditor(f.floorPlan, locked, locked ? null : async (data)=>{
-      f.floorPlan = data; await saveRecord('onsite', f); render();
+    const sk = ensureSketches(f);
+    const cur = sk[sk.length-1];
+    openSketchEditor(cur ? cur.data : f.floorPlan, locked, locked ? null : async (data)=>{
+      if(cur){ cur.data = data; cur.updatedAt = nowISO(); }
+      else sk.push({id:uid(), name:'Sketch 1', data, createdAt:nowISO(), updatedAt:nowISO()});
+      syncPrimarySketch(f); await saveRecord('onsite', f); render();
     });
   }));
   document.querySelectorAll('[data-action="open-onsite"]').forEach(el=>el.addEventListener('click', ()=>{ STATE.activeOnsiteId=el.dataset.id; render(); }));
@@ -4008,7 +4238,7 @@ Office@gsbconstructions.com`);
 
   document.querySelectorAll('[data-action="build-estimate"]').forEach(el=>el.addEventListener('click', ()=>{
     const f = DB.onsite.find(x=>x.id===el.dataset.id);
-    STATE.modal = {type:'estimate-form', data:{ onsiteId:f.id, jobName:f.clientName+' — Project', date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:'', demo:f.demo, constr:f.constr, ep:f.ep, owner:f.owner, pricing:{permit:'',demo:'',constr:'',ep:''} }};
+    STATE.modal = {type:'estimate-form', data:{ onsiteId:f.id, jobName:f.clientName+' — Project', date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:(clientEmailFor(f.clientName,f.phone)||f.email||''), demo:f.demo, constr:f.constr, ep:f.ep, owner:f.owner, pricing:{permit:'',demo:'',constr:'',ep:''} }};
     render();
   }));
   bindClick('save-estimate', async (el)=>{
@@ -4035,21 +4265,24 @@ Office@gsbconstructions.com`);
   });
   bindClick('send-remote-estimate', async (el)=>{
     const e = DB.estimates.find(x=>x.id===el.dataset.id);
-    if(!e.clientEmail){ alert('No email on file for this client — add one under Clients first.'); return; }
     e.sentRemote = true; e.sentRemoteAt = nowISO();
     e.remoteSignToken = e.remoteSignToken || genSignToken();
     e.contentHashAtSend = estimateContentFingerprint(e);
     await saveRecord('estimates', e);
     pushNotification(`Estimate sent for remote signature to ${e.clientName}.`);
-    const signLink = window.location.href.split('?')[0] + '?sign=' + e.remoteSignToken;
-    const subject = encodeURIComponent('Your Project Estimate — Ready to Sign — GSB General Construction Inc');
-    const body = encodeURIComponent(`Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your signature.\n\nPlease open the link below to review and sign it online:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))}\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`);
-    window.location.href = `mailto:${e.clientEmail}?subject=${subject}&body=${body}`;
+    const signLink = signBaseUrl() + '?sign=' + e.remoteSignToken;
+    openSendLinkDialog({
+      title:'Send Estimate to Client', email:e.clientEmail,
+      subject:'Your Project Estimate — Ready to Sign — GSB General Construction Inc',
+      link:signLink,
+      body:`Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your signature.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))} (a ballpark of the final price, subject to finalized pricing)\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`,
+      onEmail:(to)=>{ if(to && to!==e.clientEmail){ e.clientEmail=to; saveRecord('estimates', e); } }
+    });
     STATE.modal = {type:'estimate-detail', data:e}; render();
   });
   bindClick('copy-estimate-sign-link', (el)=>{
     const e = DB.estimates.find(x=>x.id===el.dataset.id);
-    const signLink = window.location.href.split('?')[0] + '?sign=' + e.remoteSignToken;
+    const signLink = signBaseUrl() + '?sign=' + e.remoteSignToken;
     navigator.clipboard.writeText(signLink).then(()=>{ el.textContent='Copied!'; setTimeout(()=>{el.textContent='Copy Signing Link';},1500); });
   });
 
@@ -4100,7 +4333,7 @@ Office@gsbconstructions.com`);
         const total = Math.round(totals.grandTotal);
         await saveRecord('onsite', f);
         STATE.pricingCalcOnsiteId = null;
-        STATE.modal = {type:'estimate-form', data:{ onsiteId:f.id, jobName:f.clientName+' — Project', date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:'', demo:f.demo, constr:f.constr, ep:f.ep, owner:f.owner, pricing:{permit:'', demo:'', constr:total, ep:''} }};
+        STATE.modal = {type:'estimate-form', data:{ onsiteId:f.id, jobName:f.clientName+' — Project', date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:(clientEmailFor(f.clientName,f.phone)||f.email||''), demo:f.demo, constr:f.constr, ep:f.ep, owner:f.owner, pricing:{permit:'', demo:'', constr:total, ep:''} }};
         render(); return;
       }
       // pure number entry — update the data and just refresh the totals shown, so the field never loses focus
@@ -4142,24 +4375,46 @@ Office@gsbconstructions.com`);
     render();
   });
   bindClick('add-material-page', ()=>{ STATE.modal = { type:'new-material-form' }; render(); });
-  document.querySelectorAll('[data-action="del-onsite-sketch"]').forEach(el=>el.addEventListener('click', async ()=>{
-    const f = DB.onsite.find(x=>x.id===el.dataset.id);
-    if(!f) return;
-    if(!confirm(`Delete the entire floor plan sketch for ${f.clientName}? This can't be undone.`)) return;
-    f.floorPlan = null;
-    await saveRecord('onsite', f);
-    render();
-  }));
-  document.querySelectorAll('[data-action="open-sketch-for-onsite"]').forEach(el=>el.addEventListener('click', ()=>{
-    const f = DB.onsite.find(x=>x.id===el.dataset.id);
-    if(!f) return;
-    openSketchEditor(f.floorPlan, false, async (data)=>{
-      f.floorPlan = data;
-      await saveRecord('onsite', f);
-      render();
+  document.querySelectorAll('[data-action="open-sketch-project"]').forEach(el=>el.addEventListener('click', ()=>{ STATE.activeSketchProjectId = el.dataset.id; render(); }));
+  bindClick('back-sketch-projects', ()=>{ STATE.activeSketchProjectId = null; render(); });
+  document.querySelectorAll('[data-action="new-sketch"]').forEach(el=>el.addEventListener('click', ()=>{
+    const f = DB.onsite.find(x=>x.id===el.dataset.id); if(!f) return;
+    openSketchEditor(null, false, async (data)=>{
+      const sk = ensureSketches(f);
+      sk.push({id:uid(), name:'Sketch '+(sk.length+1), data, createdAt:nowISO(), updatedAt:nowISO()});
+      syncPrimarySketch(f);
+      await saveRecord('onsite', f); render();
     });
   }));
+  document.querySelectorAll('[data-action="edit-sketch"]').forEach(el=>el.addEventListener('click', ()=>{
+    const f = DB.onsite.find(x=>x.id===el.dataset.id); if(!f) return;
+    const x = ensureSketches(f).find(k=>k.id===el.dataset.sid); if(!x) return;
+    openSketchEditor(x.data, false, async (data)=>{
+      x.data = data; x.updatedAt = nowISO();
+      syncPrimarySketch(f);
+      await saveRecord('onsite', f); render();
+    });
+  }));
+  document.querySelectorAll('[data-action="rename-sketch"]').forEach(el=>el.addEventListener('click', async ()=>{
+    const f = DB.onsite.find(x=>x.id===el.dataset.id); if(!f) return;
+    const x = ensureSketches(f).find(k=>k.id===el.dataset.sid); if(!x) return;
+    const name = prompt('Name this sketch (e.g. "Kitchen – existing", "Kitchen – new layout"):', x.name||'');
+    if(name===null) return;
+    x.name = name.trim() || x.name;
+    await saveRecord('onsite', f); render();
+  }));
+  document.querySelectorAll('[data-action="del-sketch"]').forEach(el=>el.addEventListener('click', async ()=>{
+    const f = DB.onsite.find(x=>x.id===el.dataset.id); if(!f) return;
+    const x = ensureSketches(f).find(k=>k.id===el.dataset.sid); if(!x) return;
+    if(!confirm(`Delete "${x.name||'this sketch'}" for ${f.clientName}? This can't be undone.`)) return;
+    f.sketches = f.sketches.filter(k=>k.id!==x.id);
+    syncPrimarySketch(f);
+    await saveRecord('onsite', f); render();
+  }));
   bindClick('add-new-client', ()=>{ STATE.modal = { type:'new-client-form' }; render(); });
+  document.querySelectorAll('[data-action="view-project-sketches"]').forEach(el=>el.addEventListener('click', ()=>{
+    STATE.view='sketches'; STATE.activeSketchProjectId=el.dataset.id; render();
+  }));
   document.querySelectorAll('[data-action="view-project-onsite"]').forEach(el=>el.addEventListener('click', ()=>{
     STATE.view='onsite'; STATE.subtab.onsite='review'; STATE.activeOnsiteId=el.dataset.id; render();
   }));
@@ -4184,9 +4439,23 @@ Office@gsbconstructions.com`);
     if(STATE.activeClientId===idToDelete) STATE.activeClientId = null;
     render();
   }));
-  bindClick('save-new-client', async ()=>{
+  document.querySelectorAll('[data-action="edit-client"]').forEach(el=>el.addEventListener('click', ()=>{
+    const c = DB.clients.find(x=>x.id===el.dataset.id); if(!c) return;
+    STATE.modal = { type:'edit-client-form', data:c }; render();
+  }));
+  bindClick('save-new-client', async (btn)=>{
     const name = val('nc-name');
     if(!name){ alert('Client name required.'); return; }
+    if(btn.dataset.id){
+      const c = DB.clients.find(x=>x.id===btn.dataset.id);
+      if(c){
+        Object.assign(c, { name, company: val('nc-company'), primaryPhone: val('nc-phone'), secondaryPhone: val('nc-phone2'), email: val('nc-email'),
+          preferredContact: val('nc-preferred'), howHeard: val('nc-howheard'), referredBy: val('nc-referred'),
+          mailingAddress: val('nc-mailing'), propertyAddress: val('nc-property'), notes: val('nc-notes') });
+        await saveRecord('clients', c);
+      }
+      STATE.modal = null; render(); return;
+    }
     const client = { id:uid(), name, company: val('nc-company'), mailingAddress:'', propertyAddress:'',
       primaryPhone: val('nc-phone'), secondaryPhone: val('nc-phone2'), email: val('nc-email'),
       preferredContact: val('nc-preferred'), howHeard: val('nc-howheard'), referredBy: val('nc-referred'),
@@ -4218,21 +4487,24 @@ Office@gsbconstructions.com`);
   }));
   bindClick('send-remote-contract', async (el)=>{
     const c = DB.contracts.find(x=>x.id===el.dataset.id);
-    if(!c.clientEmail){ alert('No email on file for this client — add one under Clients first.'); return; }
     c.sentRemote = true; c.sentRemoteAt = nowISO();
     c.remoteSignToken = c.remoteSignToken || genSignToken();
     c.contentHashAtSend = contractContentFingerprint(c);
     await saveRecord('contracts', c);
     pushNotification(`Contract sent for remote signature to ${c.clientName}.`);
-    const signLink = window.location.href.split('?')[0] + '?sign=' + c.remoteSignToken;
-    const subject = encodeURIComponent('Your Construction Contract — Ready to Sign — GSB General Construction Inc');
-    const body = encodeURIComponent(`Hi ${c.clientName},\n\nYour construction contract for ${c.address} is ready for your signature.\n\nPlease open the link below to review and sign it online:\n${signLink}\n\nTotal Contract Price: ${money(c.pricing.total)}\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`);
-    window.location.href = `mailto:${c.clientEmail}?subject=${subject}&body=${body}`;
+    const signLink = signBaseUrl() + '?sign=' + c.remoteSignToken;
+    openSendLinkDialog({
+      title:'Send Contract to Client', email:c.clientEmail,
+      subject:'Your Construction Contract — Ready to Sign — GSB General Construction Inc',
+      link:signLink,
+      body:`Hi ${c.clientName},\n\nYour construction contract for ${c.address} is ready for your signature.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Contract Price: ${money(c.pricing.total)}\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`,
+      onEmail:(to)=>{ if(to && to!==c.clientEmail){ c.clientEmail=to; saveRecord('contracts', c); } }
+    });
     STATE.modal = {type:'contract-detail', data:c, sigCanvasId:'sig-contract'}; render();
   });
   bindClick('copy-sign-link', (el)=>{
     const c = DB.contracts.find(x=>x.id===el.dataset.id);
-    const signLink = window.location.href.split('?')[0] + '?sign=' + c.remoteSignToken;
+    const signLink = signBaseUrl() + '?sign=' + c.remoteSignToken;
     navigator.clipboard.writeText(signLink).then(()=>{ el.textContent='Copied!'; setTimeout(()=>{el.textContent='Copy Signing Link';},1500); });
   });
   bindClick('sign-contract', async (el)=>{
@@ -4261,24 +4533,14 @@ Office@gsbconstructions.com`);
   }));
   document.querySelectorAll('[data-action="email-contract"]').forEach(el=>el.addEventListener('click', async ()=>{
     const c = DB.contracts.find(x=>x.id===el.dataset.id);
-    if(!c.clientEmail){ alert('No email on file for this client — add one under Clients first.'); return; }
     if(!c.remoteSignToken){ c.remoteSignToken = genSignToken(); await saveRecord('contracts', c); }
-    const viewLink = window.location.href.split('?')[0] + '?sign=' + c.remoteSignToken;
-    const subject = encodeURIComponent('Your Signed Construction Contract — GSB General Construction Inc');
-    const bodyText = encodeURIComponent(
-`Hi ${c.clientName},
-
-Here's a link to view or print your signed construction contract for the project at ${c.address}:
-${viewLink}
-
-Total Contract Price: ${money(c.pricing.total)}
-
-Thank you for choosing GSB General Construction Inc.
-
-GSB General Construction Inc
-954-605-4746
-Office@gsbconstructions.com`);
-    window.location.href = `mailto:${encodeURIComponent(c.clientEmail)}?subject=${subject}&body=${bodyText}`;
+    const viewLink = signBaseUrl() + '?sign=' + c.remoteSignToken;
+    openSendLinkDialog({
+      title:'Email Signed Contract', email:c.clientEmail,
+      subject:'Your Signed Construction Contract — GSB General Construction Inc', link:viewLink,
+      body:`Hi ${c.clientName},\n\nHere's a link to view or print your signed construction contract for the project at ${c.address}:\n${viewLink}\n\nTotal Contract Price: ${money(c.pricing.total)}\n\nThank you for choosing GSB General Construction Inc.\n\nGSB General Construction Inc\n954-605-4746\nOffice@gsbconstructions.com`,
+      onEmail:(to)=>{ if(to && to!==c.clientEmail){ c.clientEmail=to; saveRecord('contracts', c); } }
+    });
   }));
 
   document.querySelectorAll('[data-action="open-client"]').forEach(el=>el.addEventListener('click', ()=>{ STATE.activeClientId=el.dataset.id; render(); }));
@@ -4509,14 +4771,26 @@ Office@gsbconstructions.com`);
 function bindClick(action, fn){ document.querySelectorAll(`[data-action="${action}"]`).forEach(el=>el.addEventListener('click', ()=>fn(el))); }
 
 /* ================= AUTO CLIENT/PROJECT CREATION ================= */
-async function ensureClientExists(name, phone){
+function clientEmailFor(name, phone){
+  const normPhone = (p)=> (p||'').replace(/\D/g,'');
+  const normName = (n)=> (n||'').trim().toLowerCase();
+  const c = DB.clients.find(c=> normName(c.name)===normName(name) && normPhone(c.primaryPhone)===normPhone(phone));
+  return (c && c.email) || '';
+}
+async function ensureClientExists(name, phone, details){
   const normPhone = (p)=> (p||'').replace(/\D/g,'');
   const normName = (n)=> (n||'').trim().toLowerCase();
   const existing = DB.clients.find(c=> normName(c.name)===normName(name) && normPhone(c.primaryPhone)===normPhone(phone));
-  if(existing) return existing;
-  const client = { id:uid(), name, company:'', mailingAddress:'', propertyAddress:'',
-    primaryPhone: phone, secondaryPhone:'', email:'', preferredContact:'Call', howHeard:'', referredBy:'',
-    notes:'', projects:[] };
+  const d = details || {};
+  if(existing){
+    let ch=false;
+    ['company','secondaryPhone','email','howHeard','referredBy','notes'].forEach(k=>{ if(d[k] && !existing[k]){ existing[k]=d[k]; ch=true; } });
+    if(ch) await saveRecord('clients', existing);
+    return existing;
+  }
+  const client = { id:uid(), name, company:d.company||'', mailingAddress:'', propertyAddress:'',
+    primaryPhone: phone, secondaryPhone:d.secondaryPhone||'', email:d.email||'', preferredContact:d.preferredContact||'Call', howHeard:d.howHeard||'', referredBy:d.referredBy||'',
+    notes:d.notes||'', projects:[] };
   DB.clients.push(client);
   await saveRecord('clients', client);
   return client;
