@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gsb-field-ops-v1';
+const CACHE_NAME = 'gsb-field-ops-v2';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -28,7 +28,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, {cache:'no-store'})
       .then((response) => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => {});
