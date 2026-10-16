@@ -254,7 +254,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.10.16-f';
+const APP_VERSION = 'v2026.10.16-g';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -553,6 +553,50 @@ function computeLockAt(submittedAtISO){
   return lock.toISOString();
 }
 function isLocked(item){ return new Date() >= new Date(item.lockAt); }
+
+/* ---- Live updates: things that happen on other devices (like a client signing) show up here without reloading ---- */
+function showToast(msg){
+  let host = document.getElementById('toast-host');
+  if(!host){ host = document.createElement('div'); host.id='toast-host'; host.style.cssText='position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;gap:8px;max-width:92vw;'; document.body.appendChild(host); }
+  const t = document.createElement('div');
+  t.style.cssText='background:#2E5C3A;color:#fff;padding:12px 18px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.3);font:600 14px Inter,sans-serif;';
+  t.textContent = msg; host.appendChild(t);
+  setTimeout(()=>{ t.style.transition='opacity .4s'; t.style.opacity='0'; setTimeout(()=>t.remove(),450); }, 9000);
+}
+function safeToRerender(){
+  const a = document.activeElement;
+  const typing = a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+  return !typing && !STATE.modal && !document.querySelector('.sketch-overlay') && !document.getElementById('send-link-overlay');
+}
+function startLiveUpdates(){
+  if(window._liveStarted || !fbDb) return; window._liveStarted = true;
+  STATE.pendingRender = false;
+  setInterval(()=>{ if(STATE.pendingRender && STATE.user && safeToRerender()){ STATE.pendingRender=false; render(); } }, 2500);
+  ['notifications','contracts','estimates','clients','onsite'].forEach(k=>{
+    let first = true;
+    fbDb.collection(FS_PREFIX+KEYS[k]).onSnapshot(snap=>{
+      if(first){ first = false; return; }          // the first snapshot is just what we already loaded
+      let changed = false;
+      snap.docChanges().forEach(ch=>{
+        if(ch.doc.metadata.hasPendingWrites) return;   // our own unsent edit
+        const rec = ch.doc.data(), idf = RECORD_ID_FIELD[k];
+        const idx = DB[k].findIndex(x=>x[idf]===rec[idf]);
+        if(ch.type==='removed'){ if(idx>=0){ DB[k].splice(idx,1); changed = true; } return; }
+        if(idx>=0){
+          if(JSON.stringify(DB[k][idx]) !== JSON.stringify(rec)){
+            const cur = DB[k][idx]; Object.keys(cur).forEach(key=>{ if(!(key in rec)) delete cur[key]; }); Object.assign(cur, rec); changed = true;
+          }
+        } else {
+          if(k==='notifications') DB[k].unshift(rec); else DB[k].push(rec);
+          changed = true;
+          if(k==='notifications' && !rec.read && STATE.user) showToast('🔔 '+rec.msg);
+        }
+      });
+      if(changed && STATE.user){ if(safeToRerender()) render(); else STATE.pendingRender = true; }
+    }, err=>console.warn('live updates off for '+k, err));
+  });
+}
+
 function pushNotification(msg){
   const n = {id:uid(), msg, ts: nowISO(), read:false};
   DB.notifications.unshift(n);
@@ -670,7 +714,7 @@ function renderPublicEstimateSignBody(e){
       await docRef.update({ signature, ...sigExtra, signedAt, status:'signed' });
       const updated = { ...fresh, signature, ...sigExtra, signedAt, status:'signed' };
       renderPublicEstimateSignBody(updated);
-      fbDb.collection(FS_PREFIX+'notifications').doc(uid()).set({ id:uid(), msg:`${updated.clientName} signed their estimate remotely.`, ts: nowISO(), read:false }).catch(()=>{});
+      fbDb.collection(FS_PREFIX+'notifications').doc(uid()).set({ id:uid(), msg:`✅ ${updated.clientName} SIGNED their estimate! Open it under On-Site & Contracts → Estimates.`, ts: nowISO(), read:false }).catch(()=>{});
     }catch(err){
       errEl.textContent = 'Something went wrong submitting your signature. Please try again or call GSB General Construction at 954-605-4746.';
     }
@@ -742,7 +786,7 @@ function renderPublicSignBody(c){
       await docRef.update({ signature, ...sigExtra, signedAt, status:'signed' });
       const updated = { ...fresh, signature, ...sigExtra, signedAt, status:'signed' };
       renderPublicSignBody(updated);   // show "signed" right away — the rest happens in the background
-      fbDb.collection(FS_PREFIX+'notifications').doc(uid()).set({ id:uid(), msg:`${updated.clientName} signed their contract remotely.`, ts: nowISO(), read:false }).catch(()=>{});
+      fbDb.collection(FS_PREFIX+'notifications').doc(uid()).set({ id:uid(), msg:`✅ ${updated.clientName} SIGNED their contract! Find it under Clients → ${updated.clientName} → Project Documents.`, ts: nowISO(), read:false }).catch(()=>{});
       publicAutoCreateOrAttachClient(updated);
     }catch(err){
       errEl.textContent = 'Something went wrong submitting your signature. Please try again or call GSB General Construction at 954-605-4746.';
@@ -845,6 +889,7 @@ async function loadAll(){
   setBootStatus('Finishing up…');
   await migrateData();
   STATE.loaded = true; render();
+  startLiveUpdates();
   // Safety net: if a client signed remotely but closed their page before the follow-up steps finished,
   // finish attaching the project to Clients here (after a short wait so we never race the client's own device).
   setTimeout(async ()=>{
@@ -4955,6 +5000,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-f</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-g</div>
 </body>
 </html>
