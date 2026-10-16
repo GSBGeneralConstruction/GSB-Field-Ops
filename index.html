@@ -254,7 +254,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.10.16-g';
+const APP_VERSION = 'v2026.10.16-h';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -2817,7 +2817,7 @@ function renderOnsite(){
       ${p.onsiteSubmit ? `<button data-subtab="onsite:new" class="${tab==='new'?'active':''}">New Worksheet</button>` : ''}
       ${p.onsiteReview ? `<button data-subtab="onsite:review" class="${tab==='review'?'active':''}">Review Queue ${pendingBadge()}</button>` : ''}
       <button data-subtab="onsite:estimates" class="${tab==='estimates'?'active':''}">Estimates</button>
-      <button data-subtab="onsite:contracts" class="${tab==='contracts'?'active':''}">Contracts</button>
+      <button data-subtab="onsite:contracts" class="${tab==='contracts'?'active':''}">Contracts ${signedEstimatesReady().length?`<span class="tag reviewed" style="margin-left:6px;">${signedEstimatesReady().length} ready</span>`:''}</button>
     </div>
     ${tab==='new' ? onsiteFormView() : tab==='review' ? onsiteReviewView() : tab==='estimates' ? estimatesListView() : contractsListView()}
   `;
@@ -3234,10 +3234,30 @@ function estimateDetailView(e){
 }
 
 /* ---- Contracts ---- */
+function signedEstimatesReady(){
+  return [...DB.estimates].filter(e=>e.status==='signed' && !e.archived && !DB.contracts.find(c=>c.estimateId===e.id))
+    .sort((a,b)=>(b.signedAt||b.dateCreated||'').localeCompare(a.signedAt||a.dateCreated||''));
+}
 function contractsListView(){
   const list = [...DB.contracts].filter(c=>!c.archived).sort((a,b)=>b.dateCreated.localeCompare(a.dateCreated));
-  return `<div class="card" style="padding:8px 20px;">
-    ${list.length===0 ? emptyState('No contracts yet','Contracts are built once an estimate is signed.') : list.map(c=>`
+  const ready = signedEstimatesReady();
+  const readyHtml = ready.length ? `
+    <div class="section-label" style="margin-top:0;">Signed Estimates — Ready to Build a Contract</div>
+    <div class="card" style="padding:8px 20px;margin-bottom:14px;border-color:var(--ok,#2E5C3A);">
+      ${ready.map(e=>`
+      <div class="list-row">
+        <div class="main"><b>${esc(e.clientName)}</b> <span style="color:var(--muted);font-size:13px"> — ${esc(e.jobName||'')}</span>
+          <div class="meta">Signed ${fmtDateTime(e.signedAt)} &nbsp;·&nbsp; Total ${money(totalEstimate(e))}</div></div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="tag reviewed">ESTIMATE SIGNED</span>
+          <button class="btn ghost small" data-action="view-estimate" data-id="${e.id}">View Estimate</button>
+          <button class="btn small" data-action="build-contract" data-id="${e.id}">Build Contract</button>
+        </div>
+      </div>`).join('')}
+    </div>
+    <div class="section-label">Contracts</div>` : '';
+  return readyHtml + `<div class="card" style="padding:8px 20px;">
+    ${list.length===0 ? emptyState('No contracts yet', ready.length ? 'Tap "Build Contract" on a signed estimate above.' : 'Contracts are built once an estimate is signed.') : list.map(c=>`
       <div class="list-row">
         <div class="main"><b>${esc(c.clientName)}</b><div class="meta">${fmtDate(c.date)} &nbsp;·&nbsp; Total ${money(c.pricing.total)}</div></div>
         <div style="display:flex;gap:8px;align-items:center;">
@@ -5000,6 +5020,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-g</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-h</div>
 </body>
 </html>
