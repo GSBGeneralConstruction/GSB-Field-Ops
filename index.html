@@ -251,7 +251,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.10.16-d';
+const APP_VERSION = 'v2026.10.16-e';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -998,7 +998,24 @@ function signBaseUrl(){
   const h = window.location.href.split('?')[0].split('#')[0];
   return /^https?:/i.test(h) ? h : 'https://gsbgeneralconstruction.github.io/GSB-Field-Ops/';
 }
-function openSendLinkDialog({title, email, subject, body, link, onEmail}){
+function emailSendConfigured(){
+  const c = legalSlotSettings('emailjs');
+  return !!(c.serviceId && c.templateId && c.publicKey);
+}
+async function sendEmailDirect({to, toName, subject, text, link}){
+  const c = legalSlotSettings('emailjs');
+  if(!(c.serviceId && c.templateId && c.publicKey)) throw new Error('not-configured');
+  let html = esc(text).replace(/\n/g,'<br>');
+  if(link){ const el = esc(link); html = html.split(el).join(`<a href="${el}" style="display:inline-block;background:#6B4F2A;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;">Open &amp; Sign</a><br><span style="font-size:12px;color:#777;">${el}</span>`); }
+  const r = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ service_id:c.serviceId, template_id:c.templateId, user_id:c.publicKey,
+      template_params:{ to_email:to, to_name:toName||'', subject, message:text, message_html:html,
+        reply_to:'Office@gsbconstructions.com', from_name:'GSB General Construction Inc' } })
+  });
+  if(!r.ok){ throw new Error((await r.text()) || ('Error '+r.status)); }
+}
+function openSendLinkDialog({title, email, subject, body, link, onEmail, toName}){
   const old = document.getElementById('send-link-overlay'); if(old) old.remove();
   const ov = document.createElement('div');
   ov.id = 'send-link-overlay';
@@ -1008,12 +1025,13 @@ function openSendLinkDialog({title, email, subject, body, link, onEmail}){
     <div class="field"><label>Client's email</label><input type="email" id="sl-email" value="${esc(email||'')}" placeholder="client@email.com"></div>
     <div class="field"><label>Message</label><textarea id="sl-body" rows="9" style="width:100%;">${esc(body)}</textarea></div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-      <button class="btn" id="sl-mail">Open in Email App</button>
+      <button class="btn" id="sl-send">✉️ Send Now (from the app)</button>
+      <button class="btn ghost" id="sl-mail">Open in Email App Instead</button>
       <button class="btn ghost" id="sl-share">Share…</button>
       <button class="btn ghost" id="sl-copy">Copy Message</button>
       <button class="btn ghost" id="sl-copylink">Copy Link Only</button>
     </div>
-    <div class="subtle" id="sl-note" style="margin-top:10px;">If the email app doesn't open, use Copy Message and paste it into any email or text to the client.</div>
+    <div class="subtle" id="sl-note" style="margin-top:10px;">${emailSendConfigured() ? 'Tap Send Now and the email goes out right from the app.' : 'Direct sending needs a one-time setup on the Contracts page. Until then you can open your email app or copy the message.'}</div>
   </div>`;
   document.body.appendChild(ov);
   const $ = id => ov.querySelector('#'+id);
@@ -1024,6 +1042,21 @@ function openSendLinkDialog({title, email, subject, body, link, onEmail}){
   };
   $('sl-close').onclick = ()=> ov.remove();
   ov.addEventListener('click', e=>{ if(e.target===ov) ov.remove(); });
+  $('sl-send').onclick = async ()=>{
+    const to = $('sl-email').value.trim();
+    if(!to || !/^\S+@\S+\.\S+$/.test(to)){ note('Please type a valid client email above first.'); return; }
+    if(!emailSendConfigured()){ note('One-time setup needed: go to the Contracts page → "Email Sending Setup" and paste in your 3 codes. Until then, use "Open in Email App Instead" or Copy Message.'); return; }
+    const btn = $('sl-send'); btn.disabled = true; btn.textContent = 'Sending…';
+    try{
+      await sendEmailDirect({to, toName, subject, text:$('sl-body').value, link});
+      if(onEmail) onEmail(to);
+      btn.textContent = '✓ Sent!'; note('Email sent to '+to+'.');
+      setTimeout(()=> ov.remove(), 1800);
+    }catch(err){
+      btn.disabled = false; btn.textContent = '✉️ Send Now (from the app)';
+      note('Could not send: '+String(err.message||err).slice(0,200)+' — you can still use "Open in Email App Instead".');
+    }
+  };
   $('sl-mail').onclick = ()=>{
     const to = $('sl-email').value.trim();
     if(onEmail) onEmail(to);
@@ -3798,6 +3831,19 @@ function renderLegalDocs(){
   const estimate = getLegalDoc('estimate');
   return `
     <h1 class="page-title">Contracts</h1>
+    ${(()=>{ const ej = legalSlotSettings('emailjs'); return `
+    <div class="card" style="margin-bottom:14px;">
+      <div class="section-label" style="margin-top:0;">Email Sending Setup ${emailSendConfigured()?'<span class="tag reviewed">ON</span>':'<span class="tag pending">NOT SET UP</span>'}</div>
+      <div class="subtle" style="margin-bottom:8px;">One-time setup so contracts and estimates can be emailed straight from the app (no email app needed). Paste the 3 codes from your EmailJS account.</div>
+      <div class="form-grid">
+        <div class="field"><label>Service ID</label><input id="ej-service" value="${esc(ej.serviceId||'')}" placeholder="service_xxxxxxx"></div>
+        <div class="field"><label>Template ID</label><input id="ej-template" value="${esc(ej.templateId||'')}" placeholder="template_xxxxxxx"></div>
+        <div class="field"><label>Public Key</label><input id="ej-key" value="${esc(ej.publicKey||'')}" placeholder="xxxxxxxxxxxxxxx"></div>
+        <div class="field"><label>Send a test to (your email)</label><input id="ej-testto" type="email" value="Office@gsbconstructions.com"></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;"><button class="btn ghost small" data-action="test-emailjs">Send Test Email</button><button class="btn small" data-action="save-emailjs">Save</button></div>
+      <div id="ej-status" class="subtle" style="margin-top:6px;"></div>
+    </div>`; })()}
     <div class="subtle">Edit the wording right here, or upload your own PDF to use instead — no code changes needed either way.</div>
     <div class="banner-note">Uploading a PDF replaces the built-in text for that document. Client info, scope of work, and pricing still show automatically around it — but text baked into your PDF (like a client's name) won't auto-fill, since it's a fixed file. Signing an uploaded PDF uses one signature at the end instead of page-by-page initials.</div>
 
@@ -4294,7 +4340,7 @@ Office@gsbconstructions.com`);
     pushNotification(`Estimate sent for remote signature to ${e.clientName}.`);
     const signLink = signBaseUrl() + '?sign=' + e.remoteSignToken;
     openSendLinkDialog({
-      title:'Send Estimate to Client', email:e.clientEmail,
+      title:'Send Estimate to Client', email:e.clientEmail, toName:e.clientName,
       subject:'Your Project Estimate — Ready to Sign — GSB General Construction Inc',
       link:signLink,
       body:`Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your signature.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))} (a ballpark of the final price, subject to finalized pricing)\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`,
@@ -4507,6 +4553,28 @@ Office@gsbconstructions.com`);
     c.pageInitials[el.dataset.pageInitial] = el.value;
     saveRecord('contracts', c);
   }));
+  bindClick('save-emailjs', async ()=>{
+    const rec = { id:'emailjs', mode:'text', fileType:null, fileName:null, dataUrl:null, uploadedAt:null,
+      serviceId: val('ej-service').trim(), templateId: val('ej-template').trim(), publicKey: val('ej-key').trim() };
+    const idx = DB.legalDocSettings.findIndex(x=>x.id==='emailjs');
+    if(idx>=0) DB.legalDocSettings[idx]=rec; else DB.legalDocSettings.push(rec);
+    await saveRecord('legalDocSettings', rec);
+    render();
+  });
+  bindClick('test-emailjs', async ()=>{
+    const st = document.getElementById('ej-status');
+    const rec = { id:'emailjs', mode:'text', fileType:null, fileName:null, dataUrl:null, uploadedAt:null,
+      serviceId: val('ej-service').trim(), templateId: val('ej-template').trim(), publicKey: val('ej-key').trim() };
+    const idx = DB.legalDocSettings.findIndex(x=>x.id==='emailjs');
+    if(idx>=0) DB.legalDocSettings[idx]=rec; else DB.legalDocSettings.push(rec);
+    await saveRecord('legalDocSettings', rec);
+    const to = val('ej-testto').trim();
+    st.textContent = 'Sending test…';
+    try{
+      await sendEmailDirect({to, toName:'Test', subject:'GSB Field Ops — test email', text:'This is a test email from GSB Field Ops. If you got this, sending from the app works!', link:''});
+      st.textContent = '✓ Test sent to '+to+'. Check that inbox (and spam).';
+    }catch(err){ st.textContent = 'Could not send: '+String(err.message||err).slice(0,250); }
+  });
   bindClick('send-remote-contract', async (el)=>{
     const c = DB.contracts.find(x=>x.id===el.dataset.id);
     c.sentRemote = true; c.sentRemoteAt = nowISO();
@@ -4516,7 +4584,7 @@ Office@gsbconstructions.com`);
     pushNotification(`Contract sent for remote signature to ${c.clientName}.`);
     const signLink = signBaseUrl() + '?sign=' + c.remoteSignToken;
     openSendLinkDialog({
-      title:'Send Contract to Client', email:c.clientEmail,
+      title:'Send Contract to Client', email:c.clientEmail, toName:c.clientName,
       subject:'Your Construction Contract — Ready to Sign — GSB General Construction Inc',
       link:signLink,
       body:`Hi ${c.clientName},\n\nYour construction contract for ${c.address} is ready for your signature.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Contract Price: ${money(c.pricing.total)}\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`,
@@ -4558,7 +4626,7 @@ Office@gsbconstructions.com`);
     if(!c.remoteSignToken){ c.remoteSignToken = genSignToken(); await saveRecord('contracts', c); }
     const viewLink = signBaseUrl() + '?sign=' + c.remoteSignToken;
     openSendLinkDialog({
-      title:'Email Signed Contract', email:c.clientEmail,
+      title:'Email Signed Contract', email:c.clientEmail, toName:c.clientName,
       subject:'Your Signed Construction Contract — GSB General Construction Inc', link:viewLink,
       body:`Hi ${c.clientName},\n\nHere's a link to view or print your signed construction contract for the project at ${c.address}:\n${viewLink}\n\nTotal Contract Price: ${money(c.pricing.total)}\n\nThank you for choosing GSB General Construction Inc.\n\nGSB General Construction Inc\n954-605-4746\nOffice@gsbconstructions.com`,
       onEmail:(to)=>{ if(to && to!==c.clientEmail){ c.clientEmail=to; saveRecord('contracts', c); } }
@@ -4859,6 +4927,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-d</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-e</div>
 </body>
 </html>
