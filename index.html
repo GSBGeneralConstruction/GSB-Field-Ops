@@ -255,7 +255,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.10.16-j';
+const APP_VERSION = 'v2026.10.16-k';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -751,7 +751,7 @@ function renderPublicSignBody(c){
         <div class="mono" style="font-size:11px;color:var(--muted);text-align:center;">13311 SW 9th Pl, Davie, FL 33325 | 954-605-4746 | Office@gsbconstructions.com</div>
         <div style="font-size:10.5px;color:var(--muted);margin-bottom:12px;text-align:center;">Florida License #CGC1539336</div>
         <h3 class="disp" style="font-size:17px;text-align:center;">CONSTRUCTION CONTRACT AGREEMENT</h3>
-        <div class="detail-grid" style="margin:12px 0;">${dg('Owner Name',c.clientName)}${dg('Owner Phone',c.clientPhone)}${dg('Project Address',c.address)}${dg('Contract Date',fmtDate(c.date))}</div>
+        <div class="detail-grid" style="margin:12px 0;">${c.jobName?dg('Job Name',c.jobName):''}${dg('Owner Name',c.clientName)}${dg('Owner Phone',c.clientPhone)}${dg('Project Address',c.address)}${dg('Contract Date',fmtDate(c.date))}</div>
         ${notesSection('Scope Summary', c.constr)}
         <div class="section-label">Payment Schedule</div>
         <table class="hist">
@@ -824,7 +824,7 @@ async function publicAutoCreateOrAttachClient(c){
     let client = clients.find(cl => normName(cl.name)===normName(c.clientName) && normPhone(cl.primaryPhone)===normPhone(c.clientPhone));
     const estOwner = c.estimateId ? clients.find(cl=>(cl.projects||[]).some(pr=>pr.estimateId===c.estimateId)) : null;
     const estProject = estOwner ? estOwner.projects.find(pr=>pr.estimateId===c.estimateId) : null;
-    const project = { id: uid(), projectName: c.clientName ? c.clientName+' — Project' : '', date:c.date, description:c.constr||c.demo||'New project', contractAmount:c.pricing.total,
+    const project = { id: uid(), projectName: c.jobName || (c.clientName ? c.clientName+' — Project' : ''), date:c.date, description:c.constr||c.demo||'New project', contractAmount:c.pricing.total,
       estimateSigned:true, contractSigned:true, permitStatus:'not_required', constructionInProgress:false, completed:false, completedDate:null,
       checkupLetterSent:false, warrantyNotes:[], permits:[], inspections:[], beforePhotos:[], afterPhotos:[],
       onsiteId:c.onsiteId||null, estimateId:c.estimateId||null, contractId:c.id };
@@ -2867,6 +2867,7 @@ function onsiteFormView(){
       <div class="form-grid">
         <div class="field"><label>Date</label><input type="date" id="os-date" value="${todayStr()}"></div>
         <div class="field"><label>Client Name</label><input id="os-clientName" placeholder="Client name"></div>
+        <div class="field"><label>Job Name</label><input id="os-jobname" placeholder="e.g. Kitchen Remodel"></div>
         <div class="field"><label>Property Address</label><input id="os-address"></div>
         <div class="field"><label>Phone</label><input id="os-phone"></div>
         <div class="field"><label>Property Type</label><select id="os-propType"><option>Single Family</option><option>Condo</option><option>Commercial</option></select></div>
@@ -3070,7 +3071,7 @@ function onsiteReviewView(){
   return `<div class="card" style="padding:8px 20px;">
     ${forms.map(f=>`
       <div class="list-row">
-        <div class="main"><b>${esc(f.clientName)}</b> ${f.isNewClient?'<span class="tag category" style="margin-left:6px;">NEW CLIENT</span>':''}
+        <div class="main"><b>${esc(f.clientName)}</b>${f.jobName?` <span style="color:var(--muted);font-size:13px"> — ${esc(f.jobName)}</span>`:''} ${f.isNewClient?'<span class="tag category" style="margin-left:6px;">NEW CLIENT</span>':''}
           <div class="meta">${esc(f.propertyAddress)} &nbsp;·&nbsp; ${fmtDate(f.date)} &nbsp;·&nbsp; by ${esc(f.submittedBy)}</div></div>
         <div style="display:flex;align-items:center;gap:10px;">
           <span class="tag ${isLocked(f)?'locked':'pending'}">${isLocked(f)?'LOCKED':'EDITABLE'}</span>
@@ -3092,7 +3093,7 @@ function onsiteDetailView(f){
         <div><h2 class="page-title" style="margin:0">${esc(f.clientName)}</h2><div class="subtle" style="margin:2px 0 0">${esc(f.propertyAddress)}</div></div>
         <span class="tag ${f.status==='pending'?'pending':'reviewed'}" style="font-size:12px;padding:5px 12px;">${f.status==='pending'?'PENDING REVIEW':'REVIEWED'}</span>
       </div>
-      <div class="detail-grid" style="margin-bottom:18px;">${dg('Date', fmtDate(f.date))}${dg('Phone', f.phone)}${dg('Property Type', f.propType)}${dg('Approx. Age', f.age)}</div>
+      <div class="detail-grid" style="margin-bottom:18px;">${dg('Job Name', f.jobName)}${dg('Date', fmtDate(f.date))}${dg('Phone', f.phone)}${dg('Property Type', f.propType)}${dg('Approx. Age', f.age)}</div>
       ${notesSection('Demolition', f.demo)}${notesSection('Construction & Installation', f.constr)}${notesSection('Electrical & Plumbing', f.ep)}${notesSection('Rough Measurements', f.measure)}
       <div class="section-label">Subcontractors / Vendors Needed</div>
       <div>${f.subs.map(s=>`<span class="tag category" style="margin:0 6px 6px 0;">${esc(s)}</span>`).join('') || '<span class="subtle">None flagged</span>'}</div>
@@ -3289,7 +3290,7 @@ function contractsListView(){
   return readyHtml + `<div class="card" style="padding:8px 20px;">
     ${list.length===0 ? emptyState('No contracts yet', ready.length ? 'Tap "Build Contract" on a signed estimate above.' : 'Contracts are built once an estimate is signed.') : list.map(c=>`
       <div class="list-row">
-        <div class="main"><b>${esc(c.clientName)}</b><div class="meta">${fmtDate(c.date)} &nbsp;·&nbsp; Total ${money(c.pricing.total)}</div></div>
+        <div class="main"><b>${esc(c.clientName)}</b>${c.jobName?` <span style="color:var(--muted);font-size:13px"> — ${esc(c.jobName)}</span>`:''}<div class="meta">${fmtDate(c.date)} &nbsp;·&nbsp; Total ${money(c.pricing.total)}</div></div>
         <div style="display:flex;gap:8px;align-items:center;">
           <span class="tag ${c.status==='signed'?'reviewed':c.status==='locked'?'category':'pending'}">${c.status.toUpperCase()}</span>
           <button class="btn ghost small" data-action="view-contract" data-id="${c.id}">Open</button>
@@ -3496,7 +3497,7 @@ function sketchRow(f){
   const st = projectStatusForOnsite(f);
   const tag = st==='completed' ? '<span class="tag reviewed">COMPLETED</span>' : st==='signed' ? '<span class="tag category">SIGNED / IN PROGRESS</span>' : '<span class="tag pending">ESTIMATING</span>';
   return `<div class="list-row">
-    <div class="main"><b>${esc(f.clientName)}</b><div class="meta">${esc(f.propertyAddress)} &nbsp;·&nbsp; ${fmtDate(f.date)} &nbsp;·&nbsp; ${n===0?'No sketches yet':n+(n===1?' sketch':' sketches')}</div></div>
+    <div class="main"><b>${esc(f.clientName)}</b>${f.jobName?` <span style="color:var(--muted);font-size:13px"> — ${esc(f.jobName)}</span>`:''}<div class="meta">${esc(f.propertyAddress)} &nbsp;·&nbsp; ${fmtDate(f.date)} &nbsp;·&nbsp; ${n===0?'No sketches yet':n+(n===1?' sketch':' sketches')}</div></div>
     <div style="display:flex;gap:8px;align-items:center;">${tag}<button class="btn ghost small" data-action="open-sketch-project" data-id="${f.id}">Open</button></div>
   </div>`;
 }
@@ -3569,7 +3570,7 @@ function newMaterialForm(existing){
 function contractForm(d){
   return `<div class="modal-head"><h2 class="page-title" style="margin:0">Build Contract</h2><button class="close-x" data-action="close-modal">×</button></div>
     <div class="section-label">Parties & Project Info <span class="tag category">Auto-filled from estimate</span></div>
-    <div class="detail-grid" style="margin-bottom:10px;">${dg('Owner Name',d.clientName)}${dg('Owner Phone',d.clientPhone)}${dg('Owner Email',d.clientEmail)}${dg('Project Address',d.address)}</div>
+    <div class="detail-grid" style="margin-bottom:10px;">${d.jobName?dg('Job Name',d.jobName):''}${dg('Owner Name',d.clientName)}${dg('Owner Phone',d.clientPhone)}${dg('Owner Email',d.clientEmail)}${dg('Project Address',d.address)}</div>
     <div class="section-label">Scope of Work <span class="tag category">Auto-filled from estimate</span></div>
     ${notesSection('Demolition', d.demo)}${notesSection('Construction & Installation', d.constr)}${notesSection('Electrical & Plumbing', d.ep)}
     <div class="section-label">Contract Price & Payment Schedule <span class="tag category">Office locks this</span></div>
@@ -3611,12 +3612,12 @@ function contractDetailView(c){
   const constructionSettings = legalSlotSettings('construction');
   const isPdfMode = constructionSettings.mode==='pdf';
   return `
-    <div class="modal-head"><h2 class="page-title" style="margin:0">Contract — ${esc(c.clientName)}</h2><div style="display:flex;gap:8px;align-items:center;"><button class="btn ghost small" data-action="del-contract" data-id="${c.id}">Delete</button><button class="close-x" data-action="close-modal">×</button></div></div>
+    <div class="modal-head"><h2 class="page-title" style="margin:0">Contract — ${esc(c.clientName)}${c.jobName?' · '+esc(c.jobName):''}</h2><div style="display:flex;gap:8px;align-items:center;"><button class="btn ghost small" data-action="del-contract" data-id="${c.id}">Delete</button><button class="close-x" data-action="close-modal">×</button></div></div>
     <div style="border:1px solid var(--line);border-radius:8px;padding:22px;background:#fff;">
       <div class="mono" style="font-size:11px;color:var(--muted);">13311 SW 9th Pl, Davie, FL 33325 | 954-605-4746 | Office@gsbconstructions.com</div>
       <div style="font-size:10.5px;color:var(--muted);margin-bottom:12px;">Florida License #CGC1539336</div>
       <h3 class="disp" style="font-size:17px;">CONSTRUCTION CONTRACT AGREEMENT</h3>
-      <div class="detail-grid" style="margin-bottom:12px;">${dg('Owner Name',c.clientName)}${dg('Owner Phone',c.clientPhone)}${dg('Project Address',c.address)}${dg('Contract Date',fmtDate(c.date))}</div>
+      <div class="detail-grid" style="margin-bottom:12px;">${c.jobName?dg('Job Name',c.jobName):''}${dg('Owner Name',c.clientName)}${dg('Owner Phone',c.clientPhone)}${dg('Project Address',c.address)}${dg('Contract Date',fmtDate(c.date))}</div>
       ${notesSection('Scope Summary', c.constr)}
       <div class="section-label">Payment Schedule</div>
       <table class="hist">
@@ -4360,7 +4361,7 @@ Office@gsbconstructions.com`);
     const flags = Array.from(document.querySelectorAll('[data-flag]')).filter(c=>c.checked).map(c=>c.dataset.flag);
     const ts = nowISO();
     const record = { id:uid(), dateCreated:ts, submittedBy: STATE.user.first+' '+STATE.user.last, lockAt: computeLockAt(ts), status:'pending',
-      date: val('os-date'), clientName, propertyAddress: val('os-address'), phone: val('os-phone'), propType: val('os-propType'), age: val('os-age'),
+      date: val('os-date'), clientName, jobName: val('os-jobname'), propertyAddress: val('os-address'), phone: val('os-phone'), propType: val('os-propType'), age: val('os-age'),
       demo: val('os-demo'), constr: val('os-constr'), ep: val('os-ep'), measure: val('os-measure'),
       subs, subOther:'', flags, owner: val('os-owner'), followup: val('os-followup'),
       isNewClient: document.getElementById('os-isnew').checked, email: (document.getElementById('os-isnew').checked ? val('os-nc-email') : ''), editHistory:[],
@@ -4429,7 +4430,7 @@ Office@gsbconstructions.com`);
 
   document.querySelectorAll('[data-action="build-estimate"]').forEach(el=>el.addEventListener('click', ()=>{
     const f = DB.onsite.find(x=>x.id===el.dataset.id);
-    STATE.modal = {type:'estimate-form', data:{ onsiteId:f.id, jobName:f.clientName+' — Project', date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:(clientEmailFor(f.clientName,f.phone)||f.email||''), demo:f.demo, constr:f.constr, ep:f.ep, owner:f.owner, pricing:{permit:'',demo:'',constr:'',ep:''} }};
+    STATE.modal = {type:'estimate-form', data:{ onsiteId:f.id, jobName:(f.jobName||(f.clientName+' — Project')), date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:(clientEmailFor(f.clientName,f.phone)||f.email||''), demo:f.demo, constr:f.constr, ep:f.ep, owner:f.owner, pricing:{permit:'',demo:'',constr:'',ep:''} }};
     render();
   }));
   bindClick('save-estimate', async (el)=>{
@@ -4482,7 +4483,7 @@ Office@gsbconstructions.com`);
   document.querySelectorAll('[data-action="build-contract"]').forEach(el=>el.addEventListener('click', ()=>{
     const e = DB.estimates.find(x=>x.id===el.dataset.id);
     const total = totalEstimate(e);
-    STATE.modal = {type:'contract-form', data:{ estimateId:e.id, clientName:e.clientName, clientPhone:e.clientPhone, clientEmail:e.clientEmail, address:e.address,
+    STATE.modal = {type:'contract-form', data:{ estimateId:e.id, jobName:e.jobName||'', clientName:e.clientName, clientPhone:e.clientPhone, clientEmail:e.clientEmail, address:e.address,
       demo:e.demo, constr:e.constr, ep:e.ep, pricing:{total, p1:Math.round(total*0.1), p2:Math.round(total*0.4), p3:Math.round(total*0.15), p4:Math.round(total*0.15), p5:Math.round(total*0.1), p6:Math.round(total*0.05), p7:Math.round(total*0.05)} }};
     render();
   }));
@@ -4490,7 +4491,7 @@ Office@gsbconstructions.com`);
     const estimateId = el.dataset.estimate;
     const e = DB.estimates.find(x=>x.id===estimateId);
     const contract = { id:uid(), estimateId, onsiteId:e.onsiteId, dateCreated:nowISO(), date:todayStr(), status:'locked',
-      clientName:e.clientName, clientPhone:e.clientPhone, clientEmail:e.clientEmail, address:e.address, demo:e.demo, constr:e.constr, ep:e.ep, owner:e.owner,
+      jobName:e.jobName||'', clientName:e.clientName, clientPhone:e.clientPhone, clientEmail:e.clientEmail, address:e.address, demo:e.demo, constr:e.constr, ep:e.ep, owner:e.owner,
       pricing:{ total:val('c-total')||0, p1:val('c-p1')||0, p2:val('c-p2')||0, p3:val('c-p3')||0, p4:val('c-p4')||0, p5:val('c-p5')||0, p6:val('c-p6')||0, p7:val('c-p7')||0 },
       photoReleaseOptOut: document.getElementById('c-photorelease').checked, signature:null, signedAt:null,
       pageInitials:{}, sentRemote:false, sentRemoteAt:null };
@@ -4526,7 +4527,7 @@ Office@gsbconstructions.com`);
         const total = Math.round(totals.grandTotal);
         await saveRecord('onsite', f);
         STATE.pricingCalcOnsiteId = null;
-        STATE.modal = {type:'estimate-form', data:{ onsiteId:f.id, jobName:f.clientName+' — Project', date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:(clientEmailFor(f.clientName,f.phone)||f.email||''), demo:f.demo, constr:f.constr, ep:f.ep, owner:f.owner, pricing:{permit:'', demo:'', constr:total, ep:''} }};
+        STATE.modal = {type:'estimate-form', data:{ onsiteId:f.id, jobName:(f.jobName||(f.clientName+' — Project')), date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:(clientEmailFor(f.clientName,f.phone)||f.email||''), demo:f.demo, constr:f.constr, ep:f.ep, owner:f.owner, pricing:{permit:'', demo:'', constr:total, ep:''} }};
         render(); return;
       }
       // pure number entry — update the data and just refresh the totals shown, so the field never loses focus
@@ -5046,7 +5047,7 @@ async function autoCreateOrAttachClient(contract){
   const normName = (n)=> (n||'').trim().toLowerCase();
   let client = DB.clients.find(c=> normName(c.name)===normName(contract.clientName) && normPhone(c.primaryPhone)===normPhone(contract.clientPhone));
 
-  const project = { id:uid(), projectName: contract.clientName ? contract.clientName+' — Project' : '', date: todayStr(), description: contract.constr || contract.demo || 'New project', contractAmount: contract.pricing.total,
+  const project = { id:uid(), projectName: contract.jobName || (contract.clientName ? contract.clientName+' — Project' : ''), date: todayStr(), description: contract.constr || contract.demo || 'New project', contractAmount: contract.pricing.total,
     estimateSigned:true, contractSigned:true, permitStatus:'not_required', constructionInProgress:false, completed:false, completedDate:null,
     checkupLetterSent:false, warrantyNotes:[], permits:[], inspections:[], beforePhotos:[], afterPhotos:[],
     onsiteId: contract.onsiteId||null, estimateId: contract.estimateId||null, contractId: contract.id };
@@ -5089,6 +5090,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-j</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-k</div>
 </body>
 </html>
