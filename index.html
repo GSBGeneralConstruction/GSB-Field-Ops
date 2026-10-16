@@ -255,7 +255,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.10.16-l';
+const APP_VERSION = 'v2026.10.16-m';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -1201,8 +1201,10 @@ function openSendLinkDialog({title, email, subject, body, link, onEmail, toName,
     try{ await navigator.clipboard.writeText(t); note(msg); }
     catch(e){ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy'); note(msg);}catch(_){ note('Could not copy — select the text and copy it manually.'); } ta.remove(); }
   };
-  $('sl-close').onclick = ()=> ov.remove();
-  ov.addEventListener('click', e=>{ if(e.target===ov) ov.remove(); });
+  const closeDlg = ()=>{ ov.remove(); setTimeout(fixAllSignaturePads,50); };
+  try{ if(emailSendConfigured()) fetch('https://api.emailjs.com/', {mode:'no-cors'}).catch(()=>{}); }catch(_){}   // warm up the connection so Send is faster
+  $('sl-close').onclick = closeDlg;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeDlg(); });
   $('sl-send').onclick = async ()=>{
     const to = $('sl-email').value.trim();
     if(!to || !/^\S+@\S+\.\S+$/.test(to)){ note('Please type a valid client email above first.'); return; }
@@ -1212,7 +1214,7 @@ function openSendLinkDialog({title, email, subject, body, link, onEmail, toName,
       await sendEmailDirect({to, toName, subject, text:$('sl-body').value, link, linkLabel});
       if(onEmail) onEmail(to);
       btn.textContent = '✓ Sent!'; note('Email sent to '+to+'.');
-      setTimeout(()=> ov.remove(), 1800);
+      setTimeout(closeDlg, 1200);
     }catch(err){
       btn.disabled = false; btn.textContent = '✉️ Send Now (from the app)';
       note('Could not send: '+String(err.message||err).slice(0,200)+' — you can still use "Open in Email App Instead".');
@@ -1227,11 +1229,11 @@ function openSendLinkDialog({title, email, subject, body, link, onEmail, toName,
     note('Opening your email app… if nothing happens, use Copy Message instead.');
   };
   $('sl-share').onclick = async ()=>{
-    if(navigator.share){ try{ await navigator.share({title:subject, text:$('sl-body').value}); }catch(e){} }
+    if(navigator.share){ try{ await navigator.share({title:subject, text:$('sl-body').value}); if(onEmail) onEmail($('sl-email').value.trim()); }catch(e){} }
     else copy($('sl-body').value, 'Sharing isn\'t available here, so the message was copied instead.');
   };
-  $('sl-copy').onclick = ()=> copy($('sl-body').value, 'Message copied — paste it into an email or text.');
-  $('sl-copylink').onclick = ()=> copy(link, 'Link copied.');
+  $('sl-copy').onclick = ()=>{ copy($('sl-body').value, 'Message copied — paste it into an email or text.'); if(onEmail) onEmail($('sl-email').value.trim()); };
+  $('sl-copylink').onclick = ()=>{ copy(link, 'Link copied.'); if(onEmail) onEmail($('sl-email').value.trim()); };
 }
 
 /* ---- Draw-or-type signature chooser (client signing pages) ---- */
@@ -1294,13 +1296,26 @@ function initSignaturePad(canvasId){
   ctx.strokeStyle = '#2A261E'; ctx.lineWidth = 2.2; ctx.lineJoin='round'; ctx.lineCap='round';
   let drawing=false, last=null;
   function pos(e){ const r=canvas.getBoundingClientRect(); const p = e.touches? e.touches[0]:e; return {x:p.clientX-r.left, y:p.clientY-r.top}; }
-  function start(e){ drawing=true; last=pos(e); e.preventDefault(); }
-  function move(e){ if(!drawing) return; const p=pos(e); ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke(); last=p; e.preventDefault(); }
+  function start(e){ fixSignaturePad(canvas); drawing=true; last=pos(e); e.preventDefault(); }
+  function move(e){ if(!drawing) return; const p=pos(e); const cx=canvas._ctx||ctx; cx.beginPath(); cx.moveTo(last.x,last.y); cx.lineTo(p.x,p.y); cx.stroke(); last=p; e.preventDefault(); }
   function end(){ drawing=false; }
   canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); window.addEventListener('mouseup', end);
   canvas.addEventListener('touchstart', start); canvas.addEventListener('touchmove', move); canvas.addEventListener('touchend', end);
-  canvas._ctx = ctx;
+  canvas._ctx = ctx; canvas.style.touchAction='none';
 }
+// Re-sizes a signature pad if its on-screen size changed after it was set up (e.g. after a popup closed or the iPad rotated) so it always accepts drawing
+function fixSignaturePad(canvas){
+  if(!canvas) return;
+  const ratio = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth*ratio, h = canvas.clientHeight*ratio;
+  if(w && h && (Math.abs(canvas.width-w)>2 || Math.abs(canvas.height-h)>2)){
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d'); ctx.setTransform(ratio,0,0,ratio,0,0);
+    ctx.strokeStyle='#2A261E'; ctx.lineWidth=2.2; ctx.lineJoin='round'; ctx.lineCap='round'; canvas._ctx = ctx;
+  }
+}
+function fixAllSignaturePads(){ document.querySelectorAll('canvas.sig-pad').forEach(fixSignaturePad); }
+window.addEventListener('resize', fixAllSignaturePads); window.addEventListener('orientationchange', ()=>setTimeout(fixAllSignaturePads,300));
 function clearSignature(canvasId){
   const canvas = document.getElementById(canvasId);
   const ctx = canvas.getContext('2d');
@@ -4525,20 +4540,22 @@ Office@gsbconstructions.com`);
   });
   bindClick('send-remote-estimate', async (el)=>{
     const e = DB.estimates.find(x=>x.id===el.dataset.id);
-    e.sentRemote = true; e.sentRemoteAt = nowISO();
     e.remoteSignToken = e.remoteSignToken || genSignToken();
     e.contentHashAtSend = estimateContentFingerprint(e);
-    await saveRecord('estimates', e);
-    pushNotification(`Estimate sent for remote signature to ${e.clientName}.`);
+    saveRecord('estimates', e);   // saved in the background so the window opens instantly
     const signLink = signBaseUrl() + '?sign=' + e.remoteSignToken + '&e=' + e.id;
     openSendLinkDialog({
       title:'Send Estimate to Client', email:e.clientEmail, toName:e.clientName,
       subject:'Your Project Estimate — Ready to Sign — GSB General Construction Inc',
       link:signLink,
       body:`Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your signature.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))} (a ballpark of the final price, subject to finalized pricing)\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`,
-      onEmail:(to)=>{ if(to && to!==e.clientEmail){ e.clientEmail=to; saveRecord('estimates', e); } }
+      onEmail:(to)=>{
+        let ch=false;
+        if(to && to!==e.clientEmail){ e.clientEmail=to; ch=true; }
+        if(!e.sentRemote){ e.sentRemote=true; e.sentRemoteAt=nowISO(); ch=true; pushNotification(`Estimate sent for remote signature to ${e.clientName}.`); }
+        if(ch){ saveRecord('estimates', e); render(); }
+      }
     });
-    STATE.modal = {type:'estimate-detail', data:e}; render();
   });
   bindClick('copy-estimate-sign-link', (el)=>{
     const e = DB.estimates.find(x=>x.id===el.dataset.id);
@@ -4769,20 +4786,22 @@ Office@gsbconstructions.com`);
   });
   bindClick('send-remote-contract', async (el)=>{
     const c = DB.contracts.find(x=>x.id===el.dataset.id);
-    c.sentRemote = true; c.sentRemoteAt = nowISO();
     c.remoteSignToken = c.remoteSignToken || genSignToken();
     c.contentHashAtSend = contractContentFingerprint(c);
-    await saveRecord('contracts', c);
-    pushNotification(`Contract sent for remote signature to ${c.clientName}.`);
+    saveRecord('contracts', c);   // saved in the background so the window opens instantly
     const signLink = signBaseUrl() + '?sign=' + c.remoteSignToken + '&c=' + c.id;
     openSendLinkDialog({
       title:'Send Contract to Client', email:c.clientEmail, toName:c.clientName,
       subject:'Your Construction Contract — Ready to Sign — GSB General Construction Inc',
       link:signLink,
       body:`Hi ${c.clientName},\n\nYour construction contract for ${c.address} is ready for your signature.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Contract Price: ${money(c.pricing.total)}\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`,
-      onEmail:(to)=>{ if(to && to!==c.clientEmail){ c.clientEmail=to; saveRecord('contracts', c); } }
+      onEmail:(to)=>{
+        let ch=false;
+        if(to && to!==c.clientEmail){ c.clientEmail=to; ch=true; }
+        if(!c.sentRemote){ c.sentRemote=true; c.sentRemoteAt=nowISO(); ch=true; pushNotification(`Contract sent for remote signature to ${c.clientName}.`); }
+        if(ch){ saveRecord('contracts', c); render(); }
+      }
     });
-    STATE.modal = {type:'contract-detail', data:c, sigCanvasId:'sig-contract'}; render();
   });
   bindClick('copy-sign-link', (el)=>{
     const c = DB.contracts.find(x=>x.id===el.dataset.id);
@@ -5319,6 +5338,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-l</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-m</div>
 </body>
 </html>
