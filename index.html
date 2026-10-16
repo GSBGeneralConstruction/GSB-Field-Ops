@@ -15,6 +15,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="GSB Field Ops">
 <meta name="mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -251,7 +254,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.10.16-e';
+const APP_VERSION = 'v2026.10.16-f';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -600,9 +603,12 @@ async function loadPublicSignPage(token){
   app.innerHTML = `<div class="boot-screen"><div class="boot-spinner"></div><div class="name">GSB Field Ops</div><div id="boot-status">Loading your document…</div></div>`;
   try{
     await ensureAuth();
-    const contractSnap = await fbDb.collection(FS_PREFIX+'contracts').where('remoteSignToken','==',token).limit(1).get();
+    // ask for the contract and the estimate at the same time instead of one after the other
+    const [contractSnap, estimateSnap] = await Promise.all([
+      fbDb.collection(FS_PREFIX+'contracts').where('remoteSignToken','==',token).limit(1).get(),
+      fbDb.collection(FS_PREFIX+'estimates').where('remoteSignToken','==',token).limit(1).get()
+    ]);
     if(!contractSnap.empty){ renderPublicSignBody(contractSnap.docs[0].data()); return; }
-    const estimateSnap = await fbDb.collection(FS_PREFIX+'estimates').where('remoteSignToken','==',token).limit(1).get();
     if(!estimateSnap.empty){ renderPublicEstimateSignBody(estimateSnap.docs[0].data()); return; }
     app.innerHTML = `<div class="login-wrap"><div class="login-card"><img class="login-logo" src="${LOGO}"><div class="login-title">Link Not Found</div><div class="subtle">This signing link isn't valid, or the document may have been removed. Please contact GSB General Construction at 954-605-4746.</div></div></div>`;
   }catch(err){
@@ -660,10 +666,11 @@ function renderPublicEstimateSignBody(e){
       if(!sg){ errEl.textContent = 'Please type your full name to sign.'; return; }
       const signature = sg.dataUrl;
       const sigExtra = { signatureType: sg.type, signatureTypedName: sg.typedName };
-      await docRef.update({ signature, ...sigExtra, signedAt: nowISO(), status:'signed' });
-      const updated = { ...fresh, signature, ...sigExtra, signedAt: nowISO(), status:'signed' };
-      await fbDb.collection(FS_PREFIX+'notifications').doc(uid()).set({ id:uid(), msg:`${updated.clientName} signed their estimate remotely.`, ts: nowISO(), read:false });
+      const signedAt = nowISO();
+      await docRef.update({ signature, ...sigExtra, signedAt, status:'signed' });
+      const updated = { ...fresh, signature, ...sigExtra, signedAt, status:'signed' };
       renderPublicEstimateSignBody(updated);
+      fbDb.collection(FS_PREFIX+'notifications').doc(uid()).set({ id:uid(), msg:`${updated.clientName} signed their estimate remotely.`, ts: nowISO(), read:false }).catch(()=>{});
     }catch(err){
       errEl.textContent = 'Something went wrong submitting your signature. Please try again or call GSB General Construction at 954-605-4746.';
     }
@@ -731,11 +738,12 @@ function renderPublicSignBody(c){
       if(!sg){ errEl.textContent = 'Please type your full name to sign.'; return; }
       const signature = sg.dataUrl;
       const sigExtra = { signatureType: sg.type, signatureTypedName: sg.typedName };
-      await docRef.update({ signature, ...sigExtra, signedAt: nowISO(), status:'signed' });
-      const updated = { ...fresh, signature, ...sigExtra, signedAt: nowISO(), status:'signed' };
-      await publicAutoCreateOrAttachClient(updated);
-      await fbDb.collection(FS_PREFIX+'notifications').doc(uid()).set({ id:uid(), msg:`${updated.clientName} signed their contract remotely.`, ts: nowISO(), read:false });
-      renderPublicSignBody(updated);
+      const signedAt = nowISO();
+      await docRef.update({ signature, ...sigExtra, signedAt, status:'signed' });
+      const updated = { ...fresh, signature, ...sigExtra, signedAt, status:'signed' };
+      renderPublicSignBody(updated);   // show "signed" right away — the rest happens in the background
+      fbDb.collection(FS_PREFIX+'notifications').doc(uid()).set({ id:uid(), msg:`${updated.clientName} signed their contract remotely.`, ts: nowISO(), read:false }).catch(()=>{});
+      publicAutoCreateOrAttachClient(updated);
     }catch(err){
       errEl.textContent = 'Something went wrong submitting your signature. Please try again or call GSB General Construction at 954-605-4746.';
     }
@@ -763,9 +771,11 @@ async function publicAutoCreateOrAttachClient(c){
     }
     await fbDb.collection(FS_PREFIX+'clients').doc(client.id).set(client);
     // clear the worksheet, estimate, and contract out of their working lists — now reachable from the project
-    if(c.onsiteId){ await fbDb.collection(FS_PREFIX+'onsite-estimates').doc(c.onsiteId).update({archived:true}).catch(()=>{}); }
-    if(c.estimateId){ await fbDb.collection(FS_PREFIX+'estimates').doc(c.estimateId).update({archived:true}).catch(()=>{}); }
-    await fbDb.collection(FS_PREFIX+'contracts').doc(c.id).update({archived:true}).catch(()=>{});
+    const jobs = [];
+    if(c.onsiteId) jobs.push(fbDb.collection(FS_PREFIX+'onsite-estimates').doc(c.onsiteId).update({archived:true}).catch(()=>{}));
+    if(c.estimateId) jobs.push(fbDb.collection(FS_PREFIX+'estimates').doc(c.estimateId).update({archived:true}).catch(()=>{}));
+    jobs.push(fbDb.collection(FS_PREFIX+'contracts').doc(c.id).update({archived:true}).catch(()=>{}));
+    await Promise.all(jobs);
   }catch(err){ console.error('publicAutoCreateOrAttachClient failed', err); }
 }
 
@@ -835,6 +845,20 @@ async function loadAll(){
   setBootStatus('Finishing up…');
   await migrateData();
   STATE.loaded = true; render();
+  // Safety net: if a client signed remotely but closed their page before the follow-up steps finished,
+  // finish attaching the project to Clients here (after a short wait so we never race the client's own device).
+  setTimeout(async ()=>{
+    try{
+      let fixed = false;
+      for(const c of DB.contracts.filter(x=>x.status==='signed' && !x.archived)){
+        if(DB.clients.some(cl=>(cl.projects||[]).some(pr=>pr.contractId===c.id))) continue;
+        const live = await fbDb.collection(FS_PREFIX+'contracts').doc(c.id).get();
+        if(!live.exists || (live.data() && live.data().archived)) continue;
+        await autoCreateOrAttachClient(c); fixed = true;
+      }
+      if(fixed) render();
+    }catch(e){ console.error('reconcile failed', e); }
+  }, 15000);
 }
 function legalSlotSettings(slot){ return DB.legalDocSettings.find(s=>s.id===slot) || {id:slot, mode:'text', fileType:null, fileName:null, dataUrl:null, uploadedAt:null}; }
 async function migrateLegacyBlobStorage(){
@@ -1117,7 +1141,11 @@ async function getChosenSignature(){
     ctx.fillText(name, 450, 120);
     return {dataUrl: c.toDataURL('image/png'), type:'typed', typedName:name};
   }
-  return {dataUrl: getSignatureDataUrl('sig-public'), type:'drawn', typedName:null};
+  const src = document.getElementById('sig-public');
+  const w = Math.min(src.width, 600), h = Math.round(src.height * (w / src.width));
+  const small = document.createElement('canvas'); small.width = w; small.height = h;
+  small.getContext('2d').drawImage(src, 0, 0, w, h);
+  return {dataUrl: small.toDataURL('image/png'), type:'drawn', typedName:null};
 }
 
 function initSignaturePad(canvasId){
@@ -4927,6 +4955,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-e</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-f</div>
 </body>
 </html>
