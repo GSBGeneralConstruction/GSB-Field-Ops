@@ -255,7 +255,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.10.16-k';
+const APP_VERSION = 'v2026.10.16-l';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -533,7 +533,7 @@ This Agreement, together with any Orders issued under it, constitutes the entire
 function roleByKey(key){ return DB.roles.find(r=>r.key===key) || {key, label:key, perms:{}}; }
 function roleLabel(key){ return roleByKey(key).label; }
 
-let DB = { vendors:[], onsite:[], estimates:[], clients:[], contracts:[], notifications:[], team:[], roles:[], calendarEvents:[], legalDocs:[], legalDocSettings:[], materials:[] };
+let DB = { vendors:[], onsite:[], estimates:[], clients:[], contracts:[], notifications:[], team:[], roles:[], calendarEvents:[], legalDocs:[], legalDocSettings:[], materials:[], changeOrders:[] };
 let STATE = { user:null, view:'home', subtab:{onsite:'new', projects:'current', vendors:'all'}, activeOnsiteId:null, activeClientId:null,
               modal:null, notifOpen:false, loaded:false, sigCtx:null, sigDrawing:false, newOnsitePhotos:[], newOnsiteBeforePhotos:[], newPermitPhoto:null, newGenericPhoto:null, todayFilter:null, bootMsg:'Starting up…', sketchEditor:null, newOnsiteFloorPlan:null, pricingCalcOnsiteId:null };
 
@@ -575,7 +575,7 @@ function startLiveUpdates(){
   if(window._liveStarted || !fbDb) return; window._liveStarted = true;
   STATE.pendingRender = false;
   setInterval(()=>{ if(STATE.pendingRender && STATE.user && safeToRerender()){ STATE.pendingRender=false; render(); } }, 2500);
-  ['notifications','contracts','estimates','clients','onsite'].forEach(k=>{
+  ['notifications','contracts','estimates','clients','onsite','changeOrders'].forEach(k=>{
     let first = true;
     fbDb.collection(FS_PREFIX+KEYS[k]).onSnapshot(snap=>{
       if(first){ first = false; return; }          // the first snapshot is just what we already loaded
@@ -607,8 +607,8 @@ function pushNotification(msg){
 }
 
 /* ================= STORAGE ================= */
-const KEYS = {vendors:'vendors', onsite:'onsite-estimates', estimates:'estimates', clients:'clients', contracts:'contracts', notifications:'notifications', team:'team', roles:'roles', calendarEvents:'calendar-events', legalDocs:'legal-docs', legalDocSettings:'legal-doc-settings', materials:'materials'};
-const RECORD_ID_FIELD = {vendors:'id', onsite:'id', estimates:'id', clients:'id', contracts:'id', notifications:'id', team:'id', roles:'key', calendarEvents:'id', legalDocs:'id', legalDocSettings:'id', materials:'id'};
+const KEYS = {vendors:'vendors', onsite:'onsite-estimates', estimates:'estimates', clients:'clients', contracts:'contracts', notifications:'notifications', team:'team', roles:'roles', calendarEvents:'calendar-events', legalDocs:'legal-docs', legalDocSettings:'legal-doc-settings', materials:'materials', changeOrders:'change-orders'};
+const RECORD_ID_FIELD = {vendors:'id', onsite:'id', estimates:'id', clients:'id', contracts:'id', notifications:'id', team:'id', roles:'key', calendarEvents:'id', legalDocs:'id', legalDocSettings:'id', materials:'id', changeOrders:'id'};
 const FS_PREFIX = 'gsb-data-'; // each key now gets its OWN Firestore collection (e.g. gsb-data-clients) — one document per record, not one shared blob
 function collectionFor(k){ return fbDb.collection(FS_PREFIX + KEYS[k]); }
 
@@ -658,7 +658,12 @@ async function loadPublicSignPage(token){
     // New links carry the document id, so we can fetch it directly (faster than searching for it)
     const qp = new URLSearchParams(window.location.search);
     const directC = qp.get('c'), directE = qp.get('e');
+    const directO = qp.get('o');
     try{
+      if(directO){
+        const d = await fbDb.collection(FS_PREFIX+'change-orders').doc(directO).get();
+        if(d.exists && d.data().remoteSignToken===token){ renderPublicChangeOrderBody(d.data()); return; }
+      }
       if(directC){
         const d = await fbDb.collection(FS_PREFIX+'contracts').doc(directC).get();
         if(d.exists && d.data().remoteSignToken===token){ renderPublicSignBody(d.data()); return; }
@@ -674,10 +679,67 @@ async function loadPublicSignPage(token){
     ]);
     if(!contractSnap.empty){ renderPublicSignBody(contractSnap.docs[0].data()); return; }
     if(!estimateSnap.empty){ renderPublicEstimateSignBody(estimateSnap.docs[0].data()); return; }
+    const coSnap = await fbDb.collection(FS_PREFIX+'change-orders').where('remoteSignToken','==',token).limit(1).get();
+    if(!coSnap.empty){ renderPublicChangeOrderBody(coSnap.docs[0].data()); return; }
     app.innerHTML = `<div class="login-wrap"><div class="login-card"><img class="login-logo" src="${LOGO}"><div class="login-title">Link Not Found</div><div class="subtle">This signing link isn't valid, or the document may have been removed. Please contact GSB General Construction at 954-605-4746.</div></div></div>`;
   }catch(err){
     app.innerHTML = `<div class="login-wrap"><div class="login-card"><div class="login-title">Something Went Wrong</div><div class="subtle">Please contact GSB General Construction at 954-605-4746.<br><span class="mono" style="font-size:11px;">${esc(err.message||err)}</span></div></div></div>`;
   }
+}
+function renderPublicChangeOrderBody(o){
+  const app = document.getElementById('app');
+  const alreadySigned = o.status==='signed';
+  app.innerHTML = `
+    <div class="login-wrap" style="align-items:flex-start;padding:20px 14px;">
+      <div class="login-card" style="max-width:640px;width:100%;text-align:left;">
+        <div style="text-align:center;"><img class="login-logo" src="${LOGO}"></div>
+        <div class="mono" style="font-size:11px;color:var(--muted);text-align:center;">13311 SW 9th Pl, Davie, FL 33325 | 954-605-4746 | Office@gsbconstructions.com</div>
+        <div style="font-size:10.5px;color:var(--muted);margin-bottom:12px;text-align:center;">Florida License #CGC1539336</div>
+        <h3 class="disp" style="font-size:17px;text-align:center;">CHANGE ORDER</h3>
+        <div class="detail-grid" style="margin:12px 0;">${dg('Client',o.clientName)}${dg('Project',o.jobName)}${dg('Address',o.address)}${dg('Date',fmtDate(o.date))}</div>
+        ${notesSection('Description of Change', o.description)}
+        <div class="section-label">Price</div>${changeOrderPricingTable(o)}
+        <div class="legal-block" style="margin-top:12px;max-height:none;overflow:visible;"><p>${esc(CO_TERMS)}</p></div>
+        ${alreadySigned ? `
+          <div class="section-label">Signature — Captured</div>
+          <img src="${o.signature}" style="border:1px solid var(--line);border-radius:6px;background:#fff;height:100px;">
+          <div class="subtle">Signed ${fmtDateTime(o.signedAt)}</div>
+          <div style="text-align:center;margin-top:16px;"><button class="btn" data-action="public-print">Print / Save This Copy</button></div>
+        ` : `
+          <div class="field chk" style="margin-top:14px;"><input type="checkbox" id="public-read-confirm"> I have read this change order and agree to the change and the price adjustment</div>
+          <div class="section-label">Your Signature</div>
+          ${signatureChooserHTML()}
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;"><button class="btn" data-action="public-submit-co-sign">Sign & Submit</button></div>
+          <div id="public-sign-error" class="login-err"></div>
+        `}
+      </div>
+    </div>`;
+  if(!alreadySigned) bindSignatureChooser();
+  document.querySelectorAll('[data-action="public-print"]').forEach(el=>el.addEventListener('click', ()=> window.print()));
+  document.querySelectorAll('[data-action="public-submit-co-sign"]').forEach(el=>el.addEventListener('click', async ()=>{
+    const confirmed = document.getElementById('public-read-confirm');
+    const errEl = document.getElementById('public-sign-error');
+    if(!confirmed || !confirmed.checked){ errEl.textContent = 'Please check the box confirming you\'ve read the change order.'; return; }
+    errEl.textContent = 'Submitting…';
+    try{
+      const docRef = fbDb.collection(FS_PREFIX+'change-orders').doc(o.id);
+      const fresh = (await docRef.get()).data();
+      if(fresh.contentHashAtSend && changeOrderFingerprint(fresh) !== fresh.contentHashAtSend){
+        errEl.textContent = 'This change order appears to have changed since it was sent to you. Please contact GSB General Construction at 954-605-4746 before signing.';
+        return;
+      }
+      const sg = await getChosenSignature();
+      if(!sg){ errEl.textContent = 'Please type your full name to sign.'; return; }
+      const signedAt = nowISO();
+      const extra = { signature: sg.dataUrl, signatureType: sg.type, signatureTypedName: sg.typedName, signedContentHash: changeOrderFingerprint(fresh), signedUserAgent:(navigator.userAgent||'').slice(0,160), signedAt, status:'signed' };
+      await docRef.update(extra);
+      const updated = { ...fresh, ...extra };
+      renderPublicChangeOrderBody(updated);
+      fbDb.collection(FS_PREFIX+'notifications').doc(uid()).set({ id:uid(), msg:`✅ ${updated.clientName} SIGNED a change order (${moneySigned(updated.amount)}) for ${updated.jobName||updated.address}. Find it under Clients → ${updated.clientName} → the project → Change Orders.`, ts: nowISO(), read:false }).catch(()=>{});
+    }catch(err){
+      errEl.textContent = 'Something went wrong submitting your signature. Please try again or call GSB General Construction at 954-605-4746.';
+    }
+  }));
 }
 function renderPublicEstimateSignBody(e){
   const app = document.getElementById('app');
@@ -1101,11 +1163,11 @@ function emailSendConfigured(){
   const c = legalSlotSettings('emailjs');
   return !!(c.serviceId && c.templateId && c.publicKey);
 }
-async function sendEmailDirect({to, toName, subject, text, link}){
+async function sendEmailDirect({to, toName, subject, text, link, linkLabel}){
   const c = legalSlotSettings('emailjs');
   if(!(c.serviceId && c.templateId && c.publicKey)) throw new Error('not-configured');
   let html = esc(text).replace(/\n/g,'<br>');
-  if(link){ const el = esc(link); html = html.split(el).join(`<a href="${el}" style="display:inline-block;background:#6B4F2A;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;">Open &amp; Sign</a><br><span style="font-size:12px;color:#777;">${el}</span>`); }
+  if(link){ const el = esc(link); html = html.split(el).join(`<a href="${el}" style="display:inline-block;background:#6B4F2A;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;">${esc(linkLabel||'Open & Sign')}</a><br><span style="font-size:12px;color:#777;">${el}</span>`); }
   const r = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ service_id:c.serviceId, template_id:c.templateId, user_id:c.publicKey,
@@ -1114,7 +1176,7 @@ async function sendEmailDirect({to, toName, subject, text, link}){
   });
   if(!r.ok){ throw new Error((await r.text()) || ('Error '+r.status)); }
 }
-function openSendLinkDialog({title, email, subject, body, link, onEmail, toName}){
+function openSendLinkDialog({title, email, subject, body, link, onEmail, toName, linkLabel}){
   const old = document.getElementById('send-link-overlay'); if(old) old.remove();
   const ov = document.createElement('div');
   ov.id = 'send-link-overlay';
@@ -1147,7 +1209,7 @@ function openSendLinkDialog({title, email, subject, body, link, onEmail, toName}
     if(!emailSendConfigured()){ note('One-time setup needed: go to the Contracts page → "Email Sending Setup" and paste in your 3 codes. Until then, use "Open in Email App Instead" or Copy Message.'); return; }
     const btn = $('sl-send'); btn.disabled = true; btn.textContent = 'Sending…';
     try{
-      await sendEmailDirect({to, toName, subject, text:$('sl-body').value, link});
+      await sendEmailDirect({to, toName, subject, text:$('sl-body').value, link, linkLabel});
       if(onEmail) onEmail(to);
       btn.textContent = '✓ Sent!'; note('Email sent to '+to+'.');
       setTimeout(()=> ov.remove(), 1800);
@@ -3731,9 +3793,11 @@ function projectCardHTML(c, pr, opts){
         ${pr.estimateId ? `<button class="btn ghost small" data-action="view-project-estimate" data-id="${pr.estimateId}">Estimate${(()=>{const es=DB.estimates.find(x=>x.id===pr.estimateId); return es&&es.signedAt?' ✓ Signed '+fmtDate(es.signedAt):'';})()}</button>` : ''}
         ${pr.contractId ? `<button class="btn ghost small" data-action="view-project-contract" data-id="${pr.contractId}">Contract${(()=>{const ct=DB.contracts.find(x=>x.id===pr.contractId); return ct&&ct.signedAt?' ✓ Signed '+fmtDate(ct.signedAt):'';})()}</button>` : ''}
       </div>` : ''}
+      ${changeOrdersSectionHTML(c, pr, p)}
       ${p.stageToggle ? `<div class="stage-controls">
         <button class="btn ghost small" data-action="toggle-permit" data-cid="${c.id}" data-pid="${pr.id}">Permit: ${pr.permitStatus.replace('_',' ')} (click to advance)</button>
         <button class="btn ghost small" data-action="toggle-building" data-cid="${c.id}" data-pid="${pr.id}">${pr.constructionInProgress? '✓ In Progress':'Mark: Construction Started'}</button>
+        ${pr.completed ? `<button class="btn ghost small" data-action="send-review-request" data-cid="${c.id}" data-pid="${pr.id}">${pr.reviewRequestedAt?'✓ Review requested '+fmtDate(pr.reviewRequestedAt.slice(0,10))+' — send again':'Ask for a Google Review'}</button>` : ''}
         <button class="btn ghost small" data-action="toggle-completed" data-cid="${c.id}" data-pid="${pr.id}">${pr.completed? '✓ Completed '+fmtDate(pr.completedDate):'Mark: Project Completed'}</button>
       </div>` : ''}
       ${cs.hasCompleted ? `
@@ -4204,6 +4268,8 @@ function renderModal(){
   if(m.type==='new-client-form') inner = newClientForm();
   if(m.type==='edit-client-form') inner = newClientForm(m.data);
   if(m.type==='contract-detail') inner = contractDetailView(m.data);
+  if(m.type==='change-order-form') inner = changeOrderForm(m.data);
+  if(m.type==='change-order-detail') inner = changeOrderDetailView(m.data);
   if(m.type==='warranty-form') inner = warrantyForm(m.cid, m.pid);
   if(m.type==='permit-form') inner = permitForm(m.cid, m.pid);
   if(m.type==='project-photo-form') inner = projectPhotoForm(m.cid, m.pid, m.field);
@@ -4774,6 +4840,54 @@ Office@gsbconstructions.com`);
   document.querySelectorAll('[data-action="toggle-completed"]').forEach(el=>el.addEventListener('click', ()=>{
     const c=DB.clients.find(x=>x.id===el.dataset.cid), pr=c.projects.find(x=>x.id===el.dataset.pid);
     pr.completed = !pr.completed; pr.completedDate = pr.completed? todayStr() : null; saveRecord('clients', c); render();
+    if(pr.completed && !pr.reviewRequestedAt) sendReviewRequest(c, pr);   // offer to ask for a Google review right away
+  }));
+  document.querySelectorAll('[data-action="new-change-order"]').forEach(el=>el.addEventListener('click', ()=>{
+    const c = DB.clients.find(x=>x.id===el.dataset.cid); const pr = c && c.projects.find(x=>x.id===el.dataset.pid); if(!pr) return;
+    const ctr = pr.contractId ? DB.contracts.find(x=>x.id===pr.contractId) : null;
+    STATE.modal = { type:'change-order-form', data:{ clientId:c.id, projectId:pr.id, clientName:c.name, jobName:pr.projectName||(ctr&&ctr.jobName)||'', address:(ctr&&ctr.address)||c.propertyAddress||'', previousTotal:projectCurrentTotal(pr) } }; render();
+  }));
+  bindClick('save-change-order', async (el)=>{
+    const c = DB.clients.find(x=>x.id===el.dataset.cid); const pr = c && c.projects.find(x=>x.id===el.dataset.pid); if(!pr) return;
+    const description = val('co-desc').trim(); const amount = parseFloat(val('co-amount'));
+    if(!description){ alert('Please describe what is changing.'); return; }
+    if(isNaN(amount)){ alert('Please enter the price change (use 0 if there is no price change).'); return; }
+    const ctr = pr.contractId ? DB.contracts.find(x=>x.id===pr.contractId) : null;
+    const prev = projectCurrentTotal(pr);
+    const o = { id:uid(), clientId:c.id, projectId:pr.id, contractId:pr.contractId||null, clientName:c.name, clientEmail:c.email||'', jobName:pr.projectName||(ctr&&ctr.jobName)||'',
+      address:(ctr&&ctr.address)||c.propertyAddress||'', description, amount, previousTotal:prev, newTotal:prev+amount, date:val('co-date')||todayStr(), dateCreated:nowISO(),
+      status:'awaiting', signature:null, signedAt:null, sentRemote:false, sentRemoteAt:null };
+    DB.changeOrders.push(o); await saveRecord('changeOrders', o);
+    STATE.modal = {type:'change-order-detail', data:o, sigCanvasId:'sig-co'}; render();
+  });
+  document.querySelectorAll('[data-action="view-change-order"]').forEach(el=>el.addEventListener('click', ()=>{
+    const o = DB.changeOrders.find(x=>x.id===el.dataset.id); if(o){ STATE.modal = {type:'change-order-detail', data:o, sigCanvasId:o.status==='signed'?null:'sig-co'}; render(); }
+  }));
+  document.querySelectorAll('[data-action="send-change-order"]').forEach(el=>el.addEventListener('click', async ()=>{
+    const o = DB.changeOrders.find(x=>x.id===el.dataset.id); if(!o) return;
+    await sendChangeOrderDialog(o);
+    STATE.modal = {type:'change-order-detail', data:o, sigCanvasId:o.status==='signed'?null:'sig-co'}; render();
+  }));
+  document.querySelectorAll('[data-action="copy-co-link"]').forEach(el=>el.addEventListener('click', ()=>{
+    const o = DB.changeOrders.find(x=>x.id===el.dataset.id); if(!o) return;
+    navigator.clipboard.writeText(signBaseUrl() + '?sign=' + o.remoteSignToken + '&o=' + o.id).then(()=>{ el.textContent='Copied!'; setTimeout(()=>{el.textContent='Copy Signing Link';},1500); });
+  }));
+  document.querySelectorAll('[data-action="del-change-order"]').forEach(el=>el.addEventListener('click', ()=>{
+    const o = DB.changeOrders.find(x=>x.id===el.dataset.id); if(!o || o.status==='signed') return;
+    if(!confirm('Delete this change order? This can\'t be undone.')) return;
+    DB.changeOrders = DB.changeOrders.filter(x=>x.id!==o.id); deleteRecord('changeOrders', o.id); STATE.modal=null; render();
+  }));
+  document.querySelectorAll('[data-action="print-change-order"]').forEach(el=>el.addEventListener('click', ()=>{
+    const o = DB.changeOrders.find(x=>x.id===el.dataset.id); if(o) printDocument('Change Order — '+o.clientName, changeOrderPrintBody(o));
+  }));
+  bindClick('sign-change-order', async (el)=>{
+    const o = DB.changeOrders.find(x=>x.id===el.dataset.id); if(!o) return;
+    o.signature = getSignatureDataUrl('sig-co'); o.signedAt = nowISO(); o.status = 'signed'; o.signatureType = 'drawn'; o.signedContentHash = changeOrderFingerprint(o);
+    await saveRecord('changeOrders', o);
+    STATE.modal = {type:'change-order-detail', data:o}; render();
+  });
+  document.querySelectorAll('[data-action="send-review-request"]').forEach(el=>el.addEventListener('click', ()=>{
+    const c = DB.clients.find(x=>x.id===el.dataset.cid); const pr = c && c.projects.find(x=>x.id===el.dataset.pid); if(pr) sendReviewRequest(c, pr);
   }));
   document.querySelectorAll('[data-action="mark-letter-sent"]').forEach(el=>el.addEventListener('click', ()=>{
     const c=DB.clients.find(x=>x.id===el.dataset.cid), pr=c.projects.find(x=>x.id===el.dataset.pid);
@@ -5011,6 +5125,121 @@ async function ensureClientExists(name, phone, details){
   await saveRecord('clients', client);
   return client;
 }
+/* ================= CHANGE ORDERS ================= */
+const CO_TERMS = 'This Change Order amends the Construction Contract between GSB General Construction Inc and the Owner for the project named above. The work and price adjustment described here are added to (or removed from) the original contract. The Contract Price is adjusted by the amount shown, and the new Contract Price replaces the previous one. Payment for this change order is due as directed by GSB General Construction Inc. All other terms and conditions of the original contract remain in full effect. By signing, the Owner authorizes the change described and agrees to the adjusted price.';
+function moneySigned(v){ const n = parseFloat(v)||0; return (n<0?'−':'+') + money(Math.abs(n)); }
+function changeOrdersForProject(pr){ return DB.changeOrders.filter(o=>o.projectId===pr.id).sort((a,b)=>(a.dateCreated||'').localeCompare(b.dateCreated||'')); }
+function projectCurrentTotal(pr){
+  return (parseFloat(pr.contractAmount)||0) + changeOrdersForProject(pr).filter(o=>o.status==='signed').reduce((t,o)=>t+(parseFloat(o.amount)||0),0);
+}
+function changeOrderFingerprint(o){
+  return simpleContentHash(JSON.stringify({ id:o.id, clientName:o.clientName, address:o.address, jobName:o.jobName, description:o.description, amount:o.amount, previousTotal:o.previousTotal, newTotal:o.newTotal }));
+}
+function changeOrderForm(d){
+  return `<div class="modal-head"><h2 class="page-title" style="margin:0">New Change Order</h2><button class="close-x" data-action="close-modal">×</button></div>
+    <div class="detail-grid" style="margin-bottom:12px;">${dg('Client',d.clientName)}${dg('Project',d.jobName)}${dg('Address',d.address)}${dg('Current Contract Total',money(d.previousTotal))}</div>
+    <div class="field"><label>What is changing? (be specific)</label><textarea id="co-desc" rows="5" placeholder="e.g. Relocate kitchen sink to the island wall and add two outlets"></textarea></div>
+    <div class="form-grid">
+      <div class="field"><label>Price change ($) — use a minus sign for a credit</label><input id="co-amount" type="number" step="0.01" placeholder="e.g. 1850"></div>
+      <div class="field"><label>Date</label><input id="co-date" type="date" value="${todayStr()}"></div>
+    </div>
+    <div class="subtle">The new contract total is calculated for you and shown on the change order.</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;"><button class="btn ghost" data-action="close-modal">Cancel</button>
+      <button class="btn" data-action="save-change-order" data-cid="${d.clientId}" data-pid="${d.projectId}">Create Change Order</button></div>`;
+}
+function changeOrderPricingTable(o){
+  return `<table class="hist">
+    <tr><td>Previous Contract Total</td><td style="text-align:right;">${money(o.previousTotal)}</td></tr>
+    <tr><td><b>This Change Order</b></td><td style="text-align:right;"><b>${moneySigned(o.amount)}</b></td></tr>
+    <tr><td><b>New Contract Total</b></td><td style="text-align:right;"><b>${money(o.newTotal)}</b></td></tr></table>`;
+}
+function changeOrderDetailView(o){
+  const signed = o.status==='signed';
+  return `
+    <div class="modal-head"><h2 class="page-title" style="margin:0">Change Order — ${esc(o.clientName)}</h2><div style="display:flex;gap:8px;align-items:center;">${signed?'':`<button class="btn ghost small" data-action="del-change-order" data-id="${o.id}">Delete</button>`}<button class="close-x" data-action="close-modal">×</button></div></div>
+    <div style="border:1px solid var(--line);border-radius:8px;padding:22px;background:#fff;">
+      <div class="mono" style="font-size:11px;color:var(--muted);">13311 SW 9th Pl, Davie, FL 33325 | 954-605-4746 | Office@gsbconstructions.com</div>
+      <div style="font-size:10.5px;color:var(--muted);margin-bottom:12px;">Florida License #CGC1539336</div>
+      <h3 class="disp" style="font-size:17px;">CHANGE ORDER</h3>
+      <div class="detail-grid" style="margin-bottom:12px;">${dg('Client',o.clientName)}${dg('Project',o.jobName)}${dg('Address',o.address)}${dg('Date',fmtDate(o.date))}</div>
+      ${notesSection('Description of Change', o.description)}
+      <div class="section-label">Price</div>${changeOrderPricingTable(o)}
+      <div class="legal-block" style="margin-top:12px;max-height:none;overflow:visible;"><p>${esc(CO_TERMS)}</p></div>
+    </div>
+    ${signed ? `
+      <div class="section-label">Signature — Captured</div>
+      <img src="${o.signature}" style="border:1px solid var(--line);border-radius:6px;background:#fff;height:100px;">
+      <div class="subtle">Signed ${fmtDateTime(o.signedAt)}${o.signatureType==='typed'?' (typed name)':''}</div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+        <button class="btn ghost small" data-action="print-change-order" data-id="${o.id}">Print</button>
+        <button class="btn small" data-action="send-change-order" data-id="${o.id}">Email Copy</button>
+      </div>
+    ` : `
+      ${o.sentRemote ? `<div class="banner-note">✓ Sent for remote signature ${fmtDateTime(o.sentRemoteAt)}. <button class="btn ghost small" style="margin-top:6px;" data-action="copy-co-link" data-id="${o.id}">Copy Signing Link</button> <button class="btn ghost small" style="margin-top:6px;" data-action="send-change-order" data-id="${o.id}">Send Again</button></div>` : `
+      <div style="display:flex;justify-content:flex-end;margin:10px 0;"><button class="btn small" data-action="send-change-order" data-id="${o.id}">Send for Remote Signature</button></div>`}
+      <div class="section-label">Or sign here in person</div>
+      <div class="sig-pad-wrap"><canvas id="sig-co" class="sig-pad"></canvas><div class="sig-hint">Client signs here with finger or mouse</div></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
+        <button class="btn ghost small" data-action="clear-sig" data-canvas="sig-co">Clear</button>
+        <button class="btn" data-action="sign-change-order" data-id="${o.id}">Capture Signature</button>
+      </div>`}`;
+}
+function changeOrderPrintBody(o){
+  return `<h2>GSB GENERAL CONSTRUCTION INC.</h2>
+    <div class="sub">13311 SW 9th Pl, Davie, FL 33325 &nbsp;|&nbsp; 954-605-4746 &nbsp;|&nbsp; Office@gsbconstructions.com &nbsp;|&nbsp; Lic #CGC1539336</div>
+    <h3 style="text-align:center;">CHANGE ORDER</h3>
+    <p><span class="lbl">Client:</span> ${esc(o.clientName)} &nbsp; <span class="lbl">Project:</span> ${esc(o.jobName||'')}<br>
+    <span class="lbl">Address:</span> ${esc(o.address||'')} &nbsp; <span class="lbl">Date:</span> ${fmtDate(o.date)}</p>
+    <h4>Description of Change</h4><p>${esc(o.description)}</p>
+    <table><tr><td>Previous Contract Total</td><td style="text-align:right;">${money(o.previousTotal)}</td></tr>
+    <tr><td><b>This Change Order</b></td><td style="text-align:right;"><b>${moneySigned(o.amount)}</b></td></tr>
+    <tr><td><b>New Contract Total</b></td><td style="text-align:right;"><b>${money(o.newTotal)}</b></td></tr></table>
+    <div class="legal"><p>${esc(CO_TERMS)}</p></div>
+    ${o.signature ? `<h4>Signature</h4><img class="sig" src="${o.signature}"><div class="sub" style="text-align:left;">Signed ${fmtDateTime(o.signedAt)}</div>` : '<p>Not yet signed.</p>'}`;
+}
+function changeOrdersSectionHTML(c, pr, p){
+  if(!pr.contractId) return '';
+  const list = changeOrdersForProject(pr);
+  const signedTotal = list.filter(o=>o.status==='signed').reduce((t,o)=>t+(parseFloat(o.amount)||0),0);
+  return `<div class="section-label" style="margin-top:16px;">Change Orders</div>
+    ${list.length===0 ? '<div class="subtle">No change orders on this project.</div>' : list.map(o=>`
+      <div class="list-row" style="padding:8px 0;">
+        <div class="main"><b>${moneySigned(o.amount)}</b> <span style="color:var(--muted);font-size:13px"> — ${esc((o.description||'').slice(0,70))}${(o.description||'').length>70?'…':''}</span>
+          <div class="meta">${fmtDate(o.date)}${o.status==='signed'?' &nbsp;·&nbsp; Signed '+fmtDate((o.signedAt||'').slice(0,10)):''}</div></div>
+        <div style="display:flex;gap:8px;align-items:center;"><span class="tag ${o.status==='signed'?'reviewed':'pending'}">${o.status==='signed'?'SIGNED':'AWAITING SIGNATURE'}</span>
+          <button class="btn ghost small" data-action="view-change-order" data-id="${o.id}">Open</button></div>
+      </div>`).join('')}
+    ${list.some(o=>o.status==='signed') ? `<div class="meta" style="margin-top:6px;">Current contract total: <b>${money(projectCurrentTotal(pr))}</b> (original ${money(pr.contractAmount)} ${moneySigned(signedTotal)} in change orders)</div>` : ''}
+    ${p.stageToggle ? `<button class="btn ghost small" style="margin-top:8px;" data-action="new-change-order" data-cid="${c.id}" data-pid="${pr.id}">+ New Change Order</button>` : ''}`;
+}
+async function sendChangeOrderDialog(o){
+  o.sentRemote = true; o.sentRemoteAt = o.sentRemoteAt || nowISO();
+  o.remoteSignToken = o.remoteSignToken || genSignToken();
+  o.contentHashAtSend = o.contentHashAtSend || changeOrderFingerprint(o);
+  await saveRecord('changeOrders', o);
+  const link = signBaseUrl() + '?sign=' + o.remoteSignToken + '&o=' + o.id;
+  const cl = DB.clients.find(x=>x.id===o.clientId);
+  const signed = o.status==='signed';
+  openSendLinkDialog({
+    title: signed ? 'Email Signed Change Order' : 'Send Change Order to Client', email:(cl&&cl.email)||o.clientEmail||'', toName:o.clientName,
+    subject: signed ? 'Your Signed Change Order — GSB General Construction Inc' : 'Change Order — Ready to Sign — GSB General Construction Inc', link, linkLabel: signed ? 'View Change Order' : 'Review & Sign',
+    body: signed
+      ? `Hi ${o.clientName},\n\nHere is a link to view or print your signed change order for ${o.jobName||o.address}:\n${link}\n\nChange: ${o.description}\nAdjustment: ${moneySigned(o.amount)}\nNew Contract Total: ${money(o.newTotal)}\n\nThank you,\nGSB General Construction Inc\n954-605-4746`
+      : `Hi ${o.clientName},\n\nA change to your project (${o.jobName||o.address}) needs your approval.\n\nChange: ${o.description}\nPrice adjustment: ${moneySigned(o.amount)}\nNew Contract Total: ${money(o.newTotal)}\n\nPlease open the link below to review and sign. You can draw your signature with your finger or type your name:\n${link}\n\nQuestions? Call us at 954-605-4746.\n\nThank you,\nGSB General Construction Inc`,
+    onEmail:(to)=>{ if(cl && to && !cl.email){ cl.email=to; saveRecord('clients', cl); } }
+  });
+}
+
+/* ================= REVIEW REQUESTS ================= */
+function sendReviewRequest(c, pr){
+  openSendLinkDialog({
+    title:'Ask for a Google Review', email:c.email||'', toName:c.name,
+    subject:'Thank you from GSB General Construction Inc', link:GOOGLE_REVIEW_LINK, linkLabel:'Leave a Google Review',
+    body:`Hi ${c.name},\n\nThank you for choosing GSB General Construction Inc for your ${pr.projectName||'project'}. It was a pleasure working with you.\n\nIf you're happy with the work, would you take 30 seconds to leave us a Google review? It means a lot to a small local business like ours:\n${GOOGLE_REVIEW_LINK}\n\nThank you again!\n\nGSB General Construction Inc\n954-605-4746\nOffice@gsbconstructions.com`,
+    onEmail:(to)=>{ if(to && !c.email) c.email = to; pr.reviewRequestedAt = nowISO(); saveRecord('clients', c); render(); }
+  });
+}
+
 /* ---- Signed estimates live on the client's project too (permanent proof) ---- */
 function ensureEstimateProject(clients, e){
   const normPhone = (p)=> (p||'').replace(/\D/g,'');
@@ -5090,6 +5319,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-k</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.10.16-l</div>
 </body>
 </html>
