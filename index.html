@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.09-p';
+const APP_VERSION = 'v2026.11.09-q';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -1717,6 +1717,13 @@ async function restList(coll){
   }
   return out;
 }
+async function restDelete(coll, id){
+  const user = fbAuth && fbAuth.currentUser; if(!user) return false;
+  const token = await user.getIdToken();
+  const url = 'https://firestore.googleapis.com/v1/projects/'+firebaseConfig.projectId+'/databases/(default)/documents/'+encodeURIComponent(coll)+'/'+encodeURIComponent(String(id));
+  const res = await fetch(url, {method:'DELETE', headers:{'Authorization':'Bearer '+token}});
+  return res.ok || res.status===404;
+}
 let _pulling = false, _lastPull = 0;
 async function pullFromCloud(manual){
   if(_pulling || !STATE.user || !STATE.loaded) return;
@@ -1727,11 +1734,21 @@ async function pullFromCloud(manual){
     const pend = new Set((await OB.all()).map(x=>x.key));
     let draftsChanged = false, otherChanged = false;
     for(const k of ['onsiteDrafts','onsite','estimates','clients','contracts','changeOrders']){
+      const tPull = Date.now();
       let remote; try{ remote = await restList(FS_PREFIX+KEYS[k]); }catch(e){ if(k==='onsiteDrafts') STATE.pullStatus = 'Could not read drafts from the cloud: '+(e.message||e); continue; }
       if(k==='onsiteDrafts') STATE.pullStatus = remote.length+' draft'+(remote.length===1?'':'s')+' found in the cloud';
       const idf = RECORD_ID_FIELD[k];
+      const t0 = tPull;
+      const pendNow = new Set((await OB.all()).map(x=>x.key));
+      const tb = tombs(); let tbChanged = false;
+      const remoteIds = new Set(remote.map(r=>String(r[idf])));
+      Object.keys(tb).forEach(key=>{ if(key.startsWith(k+'/') && !remoteIds.has(key.slice(k.length+1))){ delete tb[key]; tbChanged = true; } });   // gone from the cloud: forget it
+      if(tbChanged) tombSet(tb);
       for(const rec of remote){
         const id = rec[idf]; if(id===undefined || id===null) continue;
+        if(tb[k+'/'+id]){ try{ restDelete(FS_PREFIX+KEYS[k], id); }catch(e){} continue; }          // deleted on this device: keep it deleted
+        if((LOCAL_TOUCH[k+'/'+id]||0) >= t0) continue;                                              // changed here while this check was running
+        if(pendNow.has(k+'/'+id) && !pend.has(k+'/'+id)) continue;
         if(pend.has(k+'/'+id)){
           const loc = DB[k].find(x=>x[idf]===id);
           const newerRemote = k==='onsiteDrafts' && loc && String(rec.savedAt||'') > String(loc.savedAt||'');
@@ -1803,7 +1820,12 @@ async function replayOutbox(force){
 setInterval(()=>{ obUpdateBadge(); }, 6000);
 window.addEventListener('online', ()=>{ setTimeout(()=>replayOutbox(false), 6000); });
 setTimeout(()=>{ replayOutbox(false); obUpdateBadge(); }, 9000);
+const LOCAL_TOUCH = {};   // key -> time this device last saved/deleted it (so a slow "pull" can never bring back an older copy)
+const TOMB_KEY = 'gsb-deleted-ids';
+function tombs(){ try{ return JSON.parse(localStorage.getItem(TOMB_KEY)||'{}'); }catch(e){ return {}; } }
+function tombSet(t){ try{ localStorage.setItem(TOMB_KEY, JSON.stringify(t)); }catch(e){} }
 async function saveRecord(k, record){
+  try{ LOCAL_TOUCH[k+'/'+record[RECORD_ID_FIELD[k]]] = Date.now(); const t = tombs(); const kk = k+'/'+record[RECORD_ID_FIELD[k]]; if(t[kk]){ delete t[kk]; tombSet(t); } }catch(e){}
   const idField = RECORD_ID_FIELD[k];
   const id = record[idField];
   if(id===undefined || id===null || id===''){ console.error('saveRecord: missing id field for', k, record); return; }
@@ -1823,6 +1845,7 @@ async function saveRecord(k, record){
   catch(e){ console.error('saveRecord failed for', k, id, e); }
 }
 async function deleteRecord(k, id){
+  try{ LOCAL_TOUCH[k+'/'+id] = Date.now(); const t = tombs(); t[k+'/'+id] = Date.now(); tombSet(t); }catch(e){}
   try{ await OB.del(k, id); }catch(e){}
   try{ await fsWrite(collectionFor(k).doc(String(id)).delete()); }
   catch(e){ console.error('deleteRecord failed for', k, id, e); }
@@ -7334,6 +7357,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.09-p</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.09-q</div>
 </body>
 </html>
