@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.09-o';
+const APP_VERSION = 'v2026.11.09-p';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -1732,7 +1732,12 @@ async function pullFromCloud(manual){
       const idf = RECORD_ID_FIELD[k];
       for(const rec of remote){
         const id = rec[idf]; if(id===undefined || id===null) continue;
-        if(pend.has(k+'/'+id)) continue;                                  // we have a newer unsent copy
+        if(pend.has(k+'/'+id)){
+          const loc = DB[k].find(x=>x[idf]===id);
+          const newerRemote = k==='onsiteDrafts' && loc && String(rec.savedAt||'') > String(loc.savedAt||'');
+          if(!newerRemote) continue;                                       // we have a newer unsent copy
+          try{ await OB.del(k, id); }catch(e){}                            // the cloud copy is newer than our stuck one: take the cloud copy
+        }
         if(k==='onsiteDrafts' && id===STATE.newDraftId && document.getElementById('os-clientName')) continue;   // the one you're typing in
         const i = DB[k].findIndex(x=>x[idf]===id);
         if(i<0){ DB[k].push(rec); (k==='onsiteDrafts' ? draftsChanged=true : otherChanged=true); }
@@ -7329,6 +7334,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.09-o</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.09-p</div>
 </body>
 </html>
