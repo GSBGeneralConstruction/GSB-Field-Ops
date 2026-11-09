@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.09-n';
+const APP_VERSION = 'v2026.11.09-o';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -904,7 +904,7 @@ async function saveWorksheetDraft(silent){
     if(old && !STATE._fpRemoved && !STATE.newOnsiteFloorPlan && old.floorPlan){ STATE.newOnsiteFloorPlan = old.floorPlan; try{ renderNewFloorPlanPreview(); }catch(e){} }
     if(old && !STATE.newOnsitePhotos.length && (old.photos||[]).length && !STATE._photosCleared) STATE.newOnsitePhotos = old.photos.slice();
     if(old && !STATE.newOnsiteBeforePhotos.length && (old.beforePhotos||[]).length && !STATE._photosCleared) STATE.newOnsiteBeforePhotos = old.beforePhotos.slice(); }
-  const rec = Object.assign({ id: STATE.newDraftId, savedAt: nowISO(), savedBy: STATE.user ? STATE.user.first+' '+STATE.user.last : '' }, f, {
+  const rec = Object.assign({ id: STATE.newDraftId, deviceId: DEVICE_ID, deviceName: DEVICE_NAME, savedAt: nowISO(), savedBy: STATE.user ? STATE.user.first+' '+STATE.user.last : '' }, f, {
     photos: STATE.newOnsitePhotos.slice(), beforePhotos: STATE.newOnsiteBeforePhotos.slice(), planFiles: STATE.newPlanFiles.slice(), floorPlan: STATE.newOnsiteFloorPlan || null });
   const idx = DB.onsiteDrafts.findIndex(x=>x.id===rec.id);
   if(idx>=0) DB.onsiteDrafts[idx] = rec; else DB.onsiteDrafts.push(rec);
@@ -934,12 +934,14 @@ function draftsPanelHTML(){
   if(!list.length) return `<div id="drafts-panel" class="card" style="margin-bottom:14px;background:#FFFBEF;border:1px solid #EAD6A8;"><div class="section-label" style="margin-top:0;">Saved Drafts (0)</div><div class="subtle">Nothing saved on this device yet.</div>${checkRow}</div>`;
   return `<div id="drafts-panel" class="card" style="margin-bottom:14px;background:#FFFBEF;border:1px solid #EAD6A8;">
     <div class="section-label" style="margin-top:0;">Saved Drafts (${list.length})</div>
-    ${list.map(d=>`<div class="list-row" style="padding:8px 0;"><div class="main"><div class="pname">${esc(d.clientName||'(no name yet)')}${d.jobName?' — '+esc(d.jobName):''} ${d.id===STATE.newDraftId?'<span class="tag reviewed">Open now</span>':''} ${d.floorPlan?'<span class="tag category">✏️ has sketch</span>':'<span class="tag pending">no sketch</span>'}</div><div class="meta">Saved ${fmtDateTime(d.savedAt)}${d.propertyAddress?' · '+esc(d.propertyAddress):''}</div></div>
+    ${list.map(d=>`<div class="list-row" style="padding:8px 0;"><div class="main"><div class="pname">${esc(d.clientName||'(no name yet)')}${d.jobName?' — '+esc(d.jobName):''} ${d.id===STATE.newDraftId?'<span class="tag reviewed">Open now</span>':''} ${d.floorPlan?'<span class="tag category">✏️ has sketch</span>':'<span class="tag pending">no sketch</span>'}</div><div class="meta">Saved ${fmtDateTime(d.savedAt)}${d.deviceName?' on the '+esc(d.deviceName):''}${d.propertyAddress?' · '+esc(d.propertyAddress):''}</div></div>
       <div style="display:flex;gap:6px;">${d.id===STATE.newDraftId?'':`<button class="btn small" data-action="continue-draft" data-id="${d.id}">Continue</button>`}<button class="btn ghost small" data-action="del-draft" data-id="${d.id}">Delete</button></div></div>`).join('')}
     <div style="margin-top:8px;"><button class="btn ghost small" data-action="blank-worksheet">+ Start a Blank Worksheet</button></div>${checkRow}
   </div>`;
 }
 const WS_MIRROR_KEY='gsb-ws-mirror';
+const DEVICE_ID = (()=>{ try{ let v = localStorage.getItem('gsb-device-id'); if(!v){ v = uid()+uid(); localStorage.setItem('gsb-device-id', v); } return v; }catch(e){ return 'dev-'+uid(); } })();
+const DEVICE_NAME = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1) ? 'iPad' : 'Laptop';
 function wsMirrorWrite(){
   try{
     if(!(STATE.view==='onsite' && STATE.subtab.onsite==='new' && document.getElementById('os-clientName'))) return;
@@ -985,7 +987,8 @@ async function continueDraft(id){
   const cur = collectWorksheetForm();
   if(worksheetHasContent(cur)) await saveWorksheetDraft(true);     // keep whatever is open now
   const d = DB.onsiteDrafts.find(x=>x.id===id); if(!d) return;
-  STATE.newDraftId = d.id;
+  // a draft made on ANOTHER device is copied, so editing it here can never overwrite the original over there
+  STATE.newDraftId = (d.deviceId && d.deviceId !== DEVICE_ID) ? uid() : d.id;
   STATE.newOnsitePhotos = (d.photos||[]).slice(); STATE.newOnsiteBeforePhotos = (d.beforePhotos||[]).slice();
   STATE.newPlanFiles = (d.planFiles||[]).slice(); STATE.newOnsiteFloorPlan = d.floorPlan || null;
   STATE._fpRemoved = false; STATE.pendingDraftFill = d.id; render();
@@ -7326,6 +7329,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.09-n</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.09-o</div>
 </body>
 </html>
