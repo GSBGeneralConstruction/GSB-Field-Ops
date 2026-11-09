@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.09-q';
+const APP_VERSION = 'v2026.11.09-r';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -5268,7 +5268,7 @@ function sketchRow(f){
   const tag = st==='completed' ? '<span class="tag reviewed">COMPLETED</span>' : st==='signed' ? '<span class="tag category">SIGNED / IN PROGRESS</span>' : '<span class="tag pending">ESTIMATING</span>';
   return `<div class="list-row">
     <div class="main"><b>${esc(f.clientName)}</b>${f.jobName?` <span style="color:var(--muted);font-size:13px"> — ${esc(f.jobName)}</span>`:''}<div class="meta">${esc(f.propertyAddress)} &nbsp;·&nbsp; ${fmtDate(f.date)} &nbsp;·&nbsp; ${n===0?'No sketches yet':n+(n===1?' sketch':' sketches')}</div></div>
-    <div style="display:flex;gap:8px;align-items:center;">${tag}<button class="btn ghost small" data-action="open-sketch-project" data-id="${f.id}">Open Sketches (${n}) — edit / delete</button></div>
+    <div style="display:flex;gap:8px;align-items:center;">${tag}<button class="btn ghost small" data-action="open-sketch-project" data-id="${f.id}">Open Sketches (${n}) — edit / delete</button><button class="btn ghost small" style="color:#b3261e;border-color:#b3261e;" data-action="del-sketch-project" data-id="${f.id}">🗑 Delete project</button></div>
   </div>`;
 }
 function renderSketchProjectView(f){
@@ -6644,6 +6644,15 @@ Office@gsbconstructions.com`);
     x.name = name.trim() || x.name;
     await saveRecord('onsite', f); render();
   }));
+  document.querySelectorAll('[data-action="del-sketch-project"]').forEach(el=>el.addEventListener('click', async ()=>{
+    const f = DB.onsite.find(x=>x.id===el.dataset.id); if(!f) return;
+    if(!confirm(`Delete the whole project "${f.clientName}${f.jobName?' — '+f.jobName:''}" and its worksheet and sketches? This can't be undone.`)) return;
+    const idToDelete = f.id;
+    DB.onsite = DB.onsite.filter(x=>x.id!==idToDelete);
+    if(STATE.activeOnsiteId===idToDelete) STATE.activeOnsiteId = null;
+    await deleteRecord('onsite', idToDelete);
+    render();
+  }));
   document.querySelectorAll('[data-action="del-sketch"]').forEach(el=>el.addEventListener('click', async ()=>{
     const f = DB.onsite.find(x=>x.id===el.dataset.id); if(!f) return;
     const x = ensureSketches(f).find(k=>k.id===el.dataset.sid); if(!x) return;
@@ -7357,6 +7366,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.09-q</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.09-r</div>
 </body>
 </html>
