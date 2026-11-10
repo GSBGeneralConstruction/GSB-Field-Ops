@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.10-l';
+const APP_VERSION = 'v2026.11.10-m';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -1144,7 +1144,7 @@ function estimateContentFingerprint(e){
   return simpleContentHash(JSON.stringify({
     clientName:e.clientName, clientPhone:e.clientPhone, address:e.address,
     demo:e.demo, constr:e.constr, ep:e.ep,
-    permit:e.pricing.permit, edemo:e.pricing.demo, econstr:e.pricing.constr, eep:e.pricing.ep, fin:(e.finishes||[]).map(x=>x.name+':'+x.price),
+    permit:e.pricing.permit, edemo:e.pricing.demo, econstr:e.pricing.constr, eep:e.pricing.ep, fin:(e.finishes||[]).map(x=>x.name+':'+x.price), lf:(e.laborFlats||[]).map(x=>x.name+':'+x.price),
   }));
 }
 async function loadPublicSignPage(token){
@@ -4898,11 +4898,11 @@ function estimatesListView(){
 }
 
 function estimatePricingTableHTML(e){
-  const fin = (e.finishes||[]);
+  const fin = (e.finishes||[]); const lf = (e.laborFlats||[]);
   return `<table class="hist"><tr><td>Permitting${e.permitDetail?`<div class="subtle" style="font-size:11.5px;">${esc(e.permitDetail)}</div>`:''}</td><td style="text-align:right;">${money(e.pricing.permit)}</td></tr>
-      <tr><td>Construction & Installation${fin.length?`<div class="subtle" style="font-size:11.5px;">Includes finishes (flat fees): ${fin.map(x=>esc(x.name)+' '+money(x.price)).join(' · ')}</div>`:''}</td><td style="text-align:right;">${money(e.pricing.constr)}</td></tr>
+      <tr><td>Construction & Installation${fin.length?`<div class="subtle" style="font-size:11.5px;">Includes finishes (flat fees): ${fin.map(x=>esc(x.name)+' '+money(x.price)).join(' · ')}</div>`:''}${lf.length?`<div class="subtle" style="font-size:11.5px;">Includes flat-fee work: ${lf.map(x=>esc(x.name)+' '+money(x.price)).join(' · ')}</div>`:''}</td><td style="text-align:right;">${money(e.pricing.constr)}</td></tr>
       <tr><td><b>Total Estimated Price</b></td><td style="text-align:right;"><b>${money(totalEstimate(e))}</b></td></tr></table>
-      ${fin.length?`<div class="subtle" style="margin-top:8px;font-style:italic;">${FINISHES_NOTE}</div>`:''}`;
+      ${fin.length?`<div class="subtle" style="margin-top:8px;font-style:italic;">${FINISHES_NOTE}</div>`:(lf.length?`<div class="subtle" style="margin-top:8px;font-style:italic;">${LABOR_FLAT_NOTE}</div>`:'')}`;
 }
 function totalEstimate(e){ const p=e.pricing; return (parseFloat(p.permit)||0)+(parseFloat(p.constr)||0); }
 
@@ -5063,7 +5063,9 @@ function calcPricingTotals(pb){
   const measureTotal = measureBase * (1 + (parseFloat(pb.materialsMarkupPct)||0)/100);
   const materialsBase = calcMaterialsSubtotal(pb);
   const materialsWithMarkup = materialsBase * (1 + (parseFloat(pb.materialsMarkupPct)||0)/100);
-  const laborTotal = (parseFloat(pb.laborRate)||0) * (parseFloat(pb.laborHours)||0);
+  const laborHourly = (parseFloat(pb.laborRate)||0) * (parseFloat(pb.laborHours)||0);
+  const laborFlatTotal = calcLaborFlatTotal(pb);
+  const laborTotal = laborHourly + laborFlatTotal;
   const subsBase = calcSubsSubtotal(pb);
   const subsWithMarkup = subsBase * (1 + (parseFloat(pb.subsMarkupPct)||0)/100);
   const vendorsBase = calcVendorsSubtotal(pb);
@@ -5071,7 +5073,7 @@ function calcPricingTotals(pb){
   const preTax = materialsWithMarkup + laborTotal + subsWithMarkup + vendorsWithMarkup + licenseFee + inspectionsTotal + finishesTotal + measureTotal;
   const taxAmount = preTax * (parseFloat(pb.taxPct)||0)/100;
   const grandTotal = preTax + taxAmount;
-  return { materialsBase, materialsWithMarkup, laborTotal, subsBase, subsWithMarkup, vendorsBase, vendorsWithMarkup, licenseFee, inspectionsTotal, finishesTotal, measureBase, measureTotal, preTax, taxAmount, grandTotal };
+  return { materialsBase, materialsWithMarkup, laborTotal, laborHourly, laborFlatTotal, subsBase, subsWithMarkup, vendorsBase, vendorsWithMarkup, licenseFee, inspectionsTotal, finishesTotal, measureBase, measureTotal, preTax, taxAmount, grandTotal };
 }
 function calcPricingTotalsByCategory(pb){
   const cats = { demo:0, construction:0, ep:0 };
@@ -5088,19 +5090,20 @@ function calcPricingTotalsByCategory(pb){
     const cat = line.category || 'construction';
     cats[cat] += (parseFloat(line.price)||0) * (1 + (parseFloat(pb.vendorsMarkupPct)||0)/100);
   });
-  cats.construction += (parseFloat(pb.laborRate)||0) * (parseFloat(pb.laborHours)||0); // labor always counts as construction
+  cats.construction += (parseFloat(pb.laborRate)||0) * (parseFloat(pb.laborHours)||0) + calcLaborFlatTotal(pb); // labor always counts as construction
   cats.construction += calcMeasureTotal(pb) * (1 + (parseFloat(pb.materialsMarkupPct)||0)/100);
   const taxMult = 1 + (parseFloat(pb.taxPct)||0)/100;
   return { demo: cats.demo*taxMult, construction: cats.construction*taxMult, ep: cats.ep*taxMult };
 }
 function defaultPricingBreakdown(){
-  return { materialLines:[], materialsMarkupPct:0, laborRate:0, laborHours:0, subLines:[], subsMarkupPct:0, vendorLines:[], vendorsMarkupPct:0, taxPct:0, licenseFee:2000, inspectionCount:0, inspectionRate:200, finishLines:[], measureLines:[] };
+  return { materialLines:[], materialsMarkupPct:0, laborRate:0, laborHours:0, subLines:[], subsMarkupPct:0, vendorLines:[], vendorsMarkupPct:0, taxPct:0, licenseFee:2000, inspectionCount:0, inspectionRate:200, finishLines:[], laborFlatLines:[], measureLines:[] };
 }
 function ensurePricingDefaults(pb){
   if(pb.licenseFee===undefined) pb.licenseFee = 2000;
   if(pb.inspectionCount===undefined) pb.inspectionCount = 0;
   if(pb.inspectionRate===undefined) pb.inspectionRate = 200;
   if(!Array.isArray(pb.finishLines)) pb.finishLines = [];
+  if(!Array.isArray(pb.laborFlatLines)) pb.laborFlatLines = [];
   if(!Array.isArray(pb.measureLines)) pb.measureLines = [];
   if(pb.measureLines.length){      // LF/SF items now live in the Materials list — move any that were entered separately
     pb.measureLines.forEach(l=>{ pb.materialLines.push({ id:l.id, materialId:(l.materialId && l.materialId!=='__other') ? l.materialId : '', customName:(l.materialId && l.materialId!=='__other') ? undefined : (l.name||''), unitPrice:l.rate, qty:l.qty, unitType:l.unit||'LF', store:l.store||'' }); });
@@ -5109,6 +5112,17 @@ function ensurePricingDefaults(pb){
   return pb;
 }
 function calcMeasureTotal(pb){ return (pb.measureLines||[]).reduce((s,l)=> s + (parseFloat(l.rate)||0)*(parseFloat(l.qty)||0), 0); }
+function calcLaborFlatTotal(pb){ return (pb.laborFlatLines||[]).reduce((s,l)=> s + (parseFloat(l.price)||0), 0); }
+function pbEstimatePreview(pb){
+  const totals = calcPricingTotals(pb);
+  const total = Math.round(totals.grandTotal);
+  const permitPart = Math.round(totals.licenseFee + totals.inspectionsTotal);
+  const nIns = parseFloat(pb.inspectionCount)||0;
+  const permitDetail = 'License flat fee ' + money(totals.licenseFee) + (nIns ? ' + ' + nIns + ' inspection' + (nIns===1?'':'s') + ' × ' + money(parseFloat(pb.inspectionRate)||0) : '');
+  return { permitPart, total, permitDetail, pricing:{ permit:permitPart, constr:(total-permitPart) },
+    finishes:(pb.finishLines||[]).filter(l=>(parseFloat(l.price)||0)>0).map(l=>({name:l.name||'Finish', price:parseFloat(l.price)||0})),
+    laborFlats:(pb.laborFlatLines||[]).filter(l=>(parseFloat(l.price)||0)>0).map(l=>({name:l.name||'Labor', price:parseFloat(l.price)||0})) };
+}
 function calcFinishesTotal(pb){ return (pb.finishLines||[]).reduce((s,l)=> s + (parseFloat(l.price)||0), 0); }
 let _pcTimer = null, _pcDirty = false;
 function pcStatus(txt){ const el = document.getElementById('pc-save-status'); if(el) el.textContent = txt; }
@@ -5136,7 +5150,9 @@ function refreshPricingCalculatorTotals(pb){
   });
   setText('pc-materials-base', money(totals.materialsBase));
   setText('pc-materials-markup', money(totals.materialsWithMarkup));
-  setText('pc-labor-total', money(totals.laborTotal));
+  setText('pc-labor-total', money(totals.laborHourly));
+  setText('pc-laborflat-total', money(totals.laborFlatTotal));
+  setText('pc-labor-all', money(totals.laborTotal));
   setText('pc-subs-base', money(totals.subsBase));
   setText('pc-subs-markup', money(totals.subsWithMarkup));
   setText('pc-vendors-base', money(totals.vendorsBase));
@@ -5155,6 +5171,7 @@ function refreshPricingCalculatorTotals(pb){
   setText('pc-gt-tax', money(totals.taxAmount));
   setText('pc-gt-total', money(totals.grandTotal));
 }
+const LABOR_FLAT_NOTE = 'Flat-fee work is priced as a total and is an estimate only. This estimate is subject to final pricing — it is our best idea of what the project will cost, and the actual cost may be different.';
 const FINISHES_NOTE = 'Finishes are priced as a flat total and are an estimate only. This estimate is subject to final pricing — it is our best idea of what the project will cost, and the actual cost may be different.';
 function renderPricingCalculatorPage(){
   const f = DB.onsite.find(x=>x.id===STATE.pricingCalcOnsiteId);
@@ -5171,7 +5188,11 @@ function renderPricingCalculatorPage(){
     <h1 class="page-title">Pricing Calculator</h1>
     <div class="subtle" style="margin-bottom:8px;">${esc(f.clientName||'')}${f.jobName?' — '+esc(f.jobName):''} · <span id="pc-save-status-top">Auto-saves as you type</span></div>
     <div class="subtle">${esc(f.clientName)} — ${esc(f.propertyAddress)}</div>
-
+    <div style="display:flex;gap:6px;margin:12px 0 4px;">
+      <button type="button" class="btn ${STATE.pcView==='customer'?'ghost ':''}small" data-pricing-action="pc-view" data-view="edit">✏️ Calculator</button>
+      <button type="button" class="btn ${STATE.pcView==='customer'?'':'ghost '}small" data-pricing-action="pc-view" data-view="customer">👁 Customer View</button>
+    </div>
+    ${STATE.pcView==='customer' ? customerViewHTML(f, pb) : `
     <datalist id="store-list">${storeSuggestions().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
     <div class="section-label">Materials</div>
     <div class="field" style="max-width:300px;margin-bottom:10px;"><label>Materials Markup (%) — added on top of all the materials below</label><input type="number" data-pricing-action="set-materials-markup" value="${pb.materialsMarkupPct||0}" placeholder="e.g. 30"></div>
@@ -5212,7 +5233,19 @@ function renderPricingCalculatorPage(){
       <div class="field"><label>Hourly Rate ($)</label><input type="number" data-pricing-action="set-labor-rate" value="${pb.laborRate||0}"></div>
       <div class="field"><label>Estimated Hours</label><input type="number" data-pricing-action="set-labor-hours" value="${pb.laborHours||0}"></div>
     </div>
-    <div class="subtle">Labor Total: <b id="pc-labor-total">${money(totals.laborTotal)}</b></div>
+    <div class="subtle">Hourly Labor Total: <b id="pc-labor-total">${money(totals.laborHourly)}</b></div>
+
+    <div class="section-label" style="font-size:13px;">Labor — flat-fee jobs</div>
+    <div class="subtle" style="margin-bottom:6px;">Some labor is one flat price instead of hours. Add each job with its own price (for example: Baseboard install — $1,200, Door install — $450).</div>
+    ${(pb.laborFlatLines||[]).map(line=>`<div class="list-row">
+        <div class="main"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" data-pricing-action="set-laborflat-name" data-line="${line.id}" value="${esc(line.name||'')}" placeholder="What job? (e.g. Baseboard install, Door install)" style="flex:2;min-width:180px;padding:7px;border:1px solid var(--line);border-radius:5px;">
+          <input type="number" step="0.01" data-pricing-action="set-laborflat-price" data-line="${line.id}" value="${line.price||''}" placeholder="Flat price ($)" style="flex:1;min-width:120px;padding:7px;border:1px solid var(--line);border-radius:5px;">
+        </div></div>
+        <button class="btn ghost small" data-pricing-action="remove-laborflat-line" data-line="${line.id}">Remove</button>
+      </div>`).join('') || `<div class="subtle" style="margin-bottom:8px;">No flat-fee labor jobs added yet.</div>`}
+    <button class="btn ghost small" style="margin:10px 0;" data-pricing-action="add-laborflat-line">+ Add Flat-Fee Labor Job</button>
+    <div class="subtle">Flat-Fee Labor Total: <b id="pc-laborflat-total">${money(totals.laborFlatTotal)}</b> &nbsp;·&nbsp; All Labor: <b id="pc-labor-all">${money(totals.laborTotal)}</b></div>
 
     <div class="section-label">Subcontractors</div>
     ${(pb.subLines||[]).map(line=>{
@@ -5281,7 +5314,7 @@ function renderPricingCalculatorPage(){
     <div class="card">
     <table class="hist">
       <tr><td>Materials (with markup)</td><td style="text-align:right;" id="pc-gt-materials">${money(totals.materialsWithMarkup)}</td></tr>
-      <tr><td>Labor</td><td style="text-align:right;" id="pc-gt-labor">${money(totals.laborTotal)}</td></tr>
+      <tr><td>Labor (hourly + flat-fee jobs)</td><td style="text-align:right;" id="pc-gt-labor">${money(totals.laborTotal)}</td></tr>
       <tr><td>Subcontractors (with markup)</td><td style="text-align:right;" id="pc-gt-subs">${money(totals.subsWithMarkup)}</td></tr>
       <tr><td>Vendors (with markup)</td><td style="text-align:right;" id="pc-gt-vendors">${money(totals.vendorsWithMarkup)}</td></tr>
       <tr><td>License (flat fee)</td><td style="text-align:right;" id="pc-gt-license">${money(totals.licenseFee)}</td></tr>
@@ -5298,7 +5331,21 @@ function renderPricingCalculatorPage(){
       <button class="btn ghost" data-action="save-calculation">💾 Save Calculation</button>
       <button class="btn" data-pricing-action="use-total">Save & Build Estimate</button>
     </div>
-    <div class="subtle" style="text-align:right;margin-top:6px;">Everything you enter here saves automatically to this job.</div>`;
+    <div class="subtle" style="text-align:right;margin-top:6px;">Everything you enter here saves automatically to this job.</div>`}`;
+}
+function customerViewHTML(f, pb){
+  const pv = pbEstimatePreview(pb);
+  const e = { pricing:pv.pricing, permitDetail:pv.permitDetail, finishes:pv.finishes, laborFlats:pv.laborFlats };
+  return `<div class="banner-note" style="margin:10px 0;">👁 This is what your customer will see on the estimate. Your materials, markup, store names and hourly rates are NOT shown to them — only the totals below.</div>
+    <div class="card">
+      <div style="font-weight:700;font-size:16px;">${esc(f.jobName||(f.clientName+' — Project'))}</div>
+      <div class="subtle" style="margin-bottom:10px;">${esc(f.clientName||'')}${f.propertyAddress?' · '+esc(f.propertyAddress):''}</div>
+      ${estimatePricingTableHTML(e)}
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap;">
+      <button class="btn ghost" data-pricing-action="pc-view" data-view="edit">← Back to Calculator</button>
+      <button class="btn" data-pricing-action="use-total">Save & Build Estimate</button>
+    </div>`;
 }
 function ensureSketches(f){
   if(!Array.isArray(f.sketches)) f.sketches = f.floorPlan ? [{id:uid(), name:'Sketch 1', data:f.floorPlan, createdAt:f.dateCreated||nowISO()}] : [];
@@ -6672,7 +6719,7 @@ Office@gsbconstructions.com`);
       jobName:val('e-jobname'), date:val('e-date'), clientName:val('e-clientName'), clientPhone:val('e-clientPhone'), address:val('e-address'), clientEmail:val('e-clientEmail'),
       demo:val('e-demo'), constr:val('e-constr'), ep:val('e-ep'), owner:val('e-owner'),
       pricing:{permit:val('e-p-permit')||0, demo:0, constr:val('e-p-constr')||0, ep:0},
-      finishes:(STATE.modal && STATE.modal.data && STATE.modal.data.finishes) || [], permitDetail:(STATE.modal && STATE.modal.data && STATE.modal.data.permitDetail) || '',
+      finishes:(STATE.modal && STATE.modal.data && STATE.modal.data.finishes) || [], laborFlats:(STATE.modal && STATE.modal.data && STATE.modal.data.laborFlats) || [], permitDetail:(STATE.modal && STATE.modal.data && STATE.modal.data.permitDetail) || '',
       signature:null, signedAt:null, lockAt: computeLockAt(ts), submittedAt: ts };
     DB.estimates.push(est);
     if(onsiteId){ const f=DB.onsite.find(x=>x.id===onsiteId); if(f){ f.status='reviewed'; await saveRecord('onsite', f); } }
@@ -6737,7 +6784,7 @@ Office@gsbconstructions.com`);
     render();
   }));
   bindClick('open-sync-check', ()=>{ runSyncCheck(); });
-  bindClick('close-calculator', async ()=>{ if(_pcDirty) await savePricingNow(false); STATE.pricingCalcOnsiteId = null; render(); });
+  bindClick('close-calculator', async ()=>{ if(_pcDirty) await savePricingNow(false); STATE.pricingCalcOnsiteId = null; STATE.pcView = 'edit'; render(); });
   bindClick('save-calculation', async ()=>{ await savePricingNow(true); });
   document.querySelectorAll('[data-pricing-action]').forEach(el=>{
     const eventName = (el.tagName==='SELECT') ? 'change' : (el.tagName==='INPUT' ? 'input' : 'click');
@@ -6748,7 +6795,7 @@ Office@gsbconstructions.com`);
       if(!f.pricingBreakdown) f.pricingBreakdown = defaultPricingBreakdown();
       const pb = ensurePricingDefaults(f.pricingBreakdown);
       const lineId = el.dataset.line;
-      if(action!=='use-total') schedulePricingAutosave();
+      if(action!=='use-total' && action!=='pc-view') schedulePricingAutosave();
       // structural changes (add/remove rows, pick a different item) rebuild the page
       if(action==='add-material-line'){ const nid = uid(); pb.materialLines.push({ id:nid, materialId:'', unitPrice:'', qty:'' }); render(); setTimeout(()=>openMatPicker(nid), 30); return; }
       if(action==='remove-material-line'){ pb.materialLines = pb.materialLines.filter(l=>l.id!==lineId); render(); return; }
@@ -6763,19 +6810,19 @@ Office@gsbconstructions.com`);
       if(action==='remove-measure-line'){ pb.measureLines = pb.measureLines.filter(l=>l.id!==lineId); render(); return; }
       if(action==='set-measure-material'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l){ l.materialId = el.value; if(el.value && el.value!=='__other'){ const m = DB.materials.find(x=>x.id===el.value); l.name = m ? m.name : ''; } } render(); return; }
       if(action==='set-measure-unit'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.unit = el.value; render(); return; }
+      if(action==='add-laborflat-line'){ pb.laborFlatLines.push({ id:uid(), name:'', price:'' }); render(); return; }
+      if(action==='remove-laborflat-line'){ pb.laborFlatLines = pb.laborFlatLines.filter(l=>l.id!==lineId); render(); return; }
+      if(action==='pc-view'){ STATE.pcView = el.dataset.view==='customer' ? 'customer' : 'edit'; render(); window.scrollTo(0,0); return; }
       if(action==='add-finish-line'){ pb.finishLines.push({ id:uid(), name:'', price:'' }); render(); return; }
       if(action==='remove-finish-line'){ pb.finishLines = pb.finishLines.filter(l=>l.id!==lineId); render(); return; }
       if(action==='add-new-material'){ STATE.matPhoto = undefined; STATE.modal = { type:'new-material-form' }; render(); return; }
       if(action==='use-total'){
-        const totals = calcPricingTotals(pb);
-        const total = Math.round(totals.grandTotal);
-        const permitPart = Math.round(totals.licenseFee + totals.inspectionsTotal);
-        const nIns = parseFloat(pb.inspectionCount)||0;
-        const permitDetail = 'License flat fee ' + money(totals.licenseFee) + (nIns ? ' + ' + nIns + ' inspection' + (nIns===1?'':'s') + ' × ' + money(parseFloat(pb.inspectionRate)||0) : '');
+        const pv = pbEstimatePreview(pb); const permitPart = pv.permitPart, total = pv.total, permitDetail = pv.permitDetail;
         clearTimeout(_pcTimer); _pcDirty = false; pb.savedAt = nowISO();
         await saveRecord('onsite', f);
         STATE.pricingCalcOnsiteId = null;
-        STATE.modal = {type:'estimate-form', data:{ onsiteId:f.id, jobName:(f.jobName||(f.clientName+' — Project')), date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:(clientEmailFor(f.clientName,f.phone)||f.email||''), demo:f.demo, constr:f.constr, ep:f.ep, owner:f.owner, pricing:{permit:permitPart, demo:'', constr:(total-permitPart), ep:''}, permitDetail:permitDetail, finishes:(pb.finishLines||[]).filter(l=>(parseFloat(l.price)||0)>0).map(l=>({name:l.name||'Finish', price:parseFloat(l.price)||0})) }};
+        STATE.modal = {type:'estimate-form', data:{ onsiteId:f.id, jobName:(f.jobName||(f.clientName+' — Project')), date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:(clientEmailFor(f.clientName,f.phone)||f.email||''), demo:f.demo, constr:f.constr, ep:f.ep, owner:f.owner, pricing:{permit:permitPart, demo:'', constr:(total-permitPart), ep:''}, permitDetail:permitDetail, finishes:pv.finishes, laborFlats:pv.laborFlats }};
+        STATE.pcView = 'edit';
         render(); return;
       }
       // pure number entry — update the data and just refresh the totals shown, so the field never loses focus
@@ -6800,6 +6847,8 @@ Office@gsbconstructions.com`);
       if(action==='set-measure-name'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.name = el.value; }
       if(action==='set-measure-rate'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.rate = el.value; }
       if(action==='set-measure-qty'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.qty = el.value; }
+      if(action==='set-laborflat-name'){ const line=pb.laborFlatLines.find(l=>l.id===lineId); if(line) line.name = el.value; }
+      if(action==='set-laborflat-price'){ const line=pb.laborFlatLines.find(l=>l.id===lineId); if(line) line.price = el.value; }
       if(action==='set-finish-name'){ const line=pb.finishLines.find(l=>l.id===lineId); if(line) line.name = el.value; }
       if(action==='set-finish-price'){ const line=pb.finishLines.find(l=>l.id===lineId); if(line) line.price = el.value; }
       refreshPricingCalculatorTotals(pb);
@@ -7583,6 +7632,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-l</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-m</div>
 </body>
 </html>
