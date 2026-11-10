@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.09-r';
+const APP_VERSION = 'v2026.11.10-b';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -309,7 +309,12 @@ if(typeof firebase === 'undefined'){
   firebase.initializeApp(firebaseConfig);
   fbAuth = firebase.auth();
   fbDb = firebase.firestore();
-  try{ fbDb.settings({ experimentalForceLongPolling: true, merge: true }); }catch(e){ console.warn('long-poll setting', e); }   // plain requests instead of a live stream: works where the iPad app's stream is blocked
+  // iPad/iPhone: plain requests instead of a live stream (the iPad app's stream gets blocked). Laptop/computer: the normal fast connection,
+  // and it switches to the slower way by itself if the fast one is blocked on that network.
+  const _isTouchApple = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+  let _forceSlow = _isTouchApple; try{ if(localStorage.getItem('gsb-force-longpoll')==='1') _forceSlow = true; }catch(e){}
+  try{ fbDb.settings(_forceSlow ? { experimentalForceLongPolling: true, merge: true } : { experimentalAutoDetectLongPolling: true, merge: true }); }catch(e){ console.warn('connection setting', e); }
+  window.GSB_CONN_MODE = _forceSlow ? 'safe (iPad)' : 'fast (auto)';   // plain requests instead of a live stream: works where the iPad app's stream is blocked
   if(!new URLSearchParams(window.location.search).get('sign')){
     fbDb.enablePersistence({synchronizeTabs:true}).catch(err=>{
       console.warn('Offline persistence not enabled:', err.code); // e.g. multiple tabs open in an unsupported way — app still works online
@@ -908,8 +913,12 @@ async function saveWorksheetDraft(silent){
     photos: STATE.newOnsitePhotos.slice(), beforePhotos: STATE.newOnsiteBeforePhotos.slice(), planFiles: STATE.newPlanFiles.slice(), floorPlan: STATE.newOnsiteFloorPlan || null });
   const idx = DB.onsiteDrafts.findIndex(x=>x.id===rec.id);
   if(idx>=0) DB.onsiteDrafts[idx] = rec; else DB.onsiteDrafts.push(rec);
-  await saveRecord('onsiteDrafts', rec);
+  const _sp = saveRecord('onsiteDrafts', rec);
+  await Promise.race([_sp, new Promise(r=>setTimeout(r,1500))]);      // it is already stored on this device by now; do not make the screen wait on a slow connection
+  _sp.catch(()=>{});
+  { const t = new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}); paintAutosave(navigator.onLine ? '✓ Auto-saved '+t : '✓ Auto-saved on this device '+t+' — uploads when you are back online'); }
   if(!silent){
+    await _sp.catch(()=>{});
     if(navigator.onLine){
       const r = await strictSend('onsiteDrafts', rec);
       if(!r.ok){
@@ -922,12 +931,21 @@ async function saveWorksheetDraft(silent){
     const panel = document.getElementById('drafts-panel'); if(panel) panel.outerHTML = draftsPanelHTML();
   }
 }
+function paintAutosave(txt, bad){
+  const el = document.getElementById('autosave-status'); if(!el) return;
+  el.textContent = txt; el.style.color = bad ? '#b3261e' : '';
+}
 function scheduleDraftAutosave(){
   if(!(STATE.view==='onsite' && STATE.subtab.onsite==='new')) return;
   wsMirrorWrite();
   clearTimeout(STATE._draftTimer);
-  STATE._draftTimer = setTimeout(()=>{ if(STATE.view==='onsite' && STATE.subtab.onsite==='new') saveWorksheetDraft(true); }, 2500);
+  paintAutosave('Saving…');
+  STATE._draftTimer = setTimeout(()=>{ if(STATE.view==='onsite' && STATE.subtab.onsite==='new') saveWorksheetDraft(true); }, 2000);
 }
+// safety nets: save the moment you switch away / lock the screen, and every 15 seconds while a worksheet is open
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden && STATE.view==='onsite' && STATE.subtab.onsite==='new' && document.getElementById('os-clientName')) saveWorksheetDraft(true); });
+window.addEventListener('pagehide', ()=>{ try{ if(STATE.view==='onsite' && STATE.subtab.onsite==='new' && document.getElementById('os-clientName')) saveWorksheetDraft(true); }catch(e){} });
+setInterval(()=>{ try{ if(STATE.user && STATE.view==='onsite' && STATE.subtab.onsite==='new' && document.getElementById('os-clientName') && !document.querySelector('.sketch-overlay')){ const f = collectWorksheetForm(); if(worksheetHasContent(f)) saveWorksheetDraft(true); } }catch(e){} }, 15000);
 function draftsPanelHTML(){
   const list = [...DB.onsiteDrafts].sort((a,b)=>(b.savedAt||'').localeCompare(a.savedAt||''));
   const checkRow = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;"><button class="btn ghost small" data-action="pull-now">☁️ Check for worksheets saved on other devices</button><span id="pull-status" class="subtle" style="font-size:12px;">${esc((STATE.pullStatus||'')+(STATE.pullTime?' · checked '+STATE.pullTime.toLocaleTimeString([], {hour:'numeric',minute:'2-digit',second:'2-digit'}):''))}</span></div>`;
@@ -1394,19 +1412,20 @@ function setBootStatus(msg){
 }
 async function loadAll(){
   setBootStatus('Connecting to GSB\'s database…');
-  try{
-    await ensureAuth();
-  }catch(e){
-    document.getElementById('app').innerHTML = `<div class="loading">Couldn't connect to GSB's database. Check your internet connection and reload.<br><span class="mono" style="font-size:11px;">${esc(e.message||e)}</span></div>`;
-    return;
+  // With no signal (or a dead one) sign-in cannot finish. Do not get stuck: start from what this device already has.
+  let authOk = false;
+  if(navigator.onLine){
+    try{ await Promise.race([ ensureAuth(), new Promise((_,rej)=>setTimeout(()=>rej(new Error('slow sign-in')), 6000)) ]); authOk = true; }
+    catch(e){ _authPromise = null; authOk = false; }
   }
+  STATE.offlineStart = !authOk;
   setBootStatus('Loading your data…');
   const keyList = Object.keys(KEYS);
   const snapFor = (k)=>{
     const col = collectionFor(k);
     const fromDevice = ()=> col.get({source:'cache'});
-    if(!navigator.onLine) return fromDevice();
-    return Promise.race([col.get(), new Promise((_,rej)=>setTimeout(()=>rej(new Error('slow')), 12000))]).catch(fromDevice);
+    if(!authOk || !navigator.onLine) return fromDevice();
+    return Promise.race([col.get(), new Promise((_,rej)=>setTimeout(()=>rej(new Error('slow')), 10000))]).catch(fromDevice);
   };
   const results = await Promise.all(keyList.map(k =>
     snapFor(k)
@@ -1414,23 +1433,33 @@ async function loadAll(){
       .catch(()=> ({ k, value: [] }))
   ));
   results.forEach(r => { DB[r.k] = r.value; });
-  if(!navigator.onLine && DB.team.length===0){
-    document.getElementById('app').innerHTML = `<div class="loading">No signal, and this device hasn't downloaded GSB's data yet.<br><br>Connect to the internet once and open the app — after that it works without signal.<br><br><button class="btn" onclick="location.reload()">Try Again</button></div>`;
+  // Second safety copy of the few things needed to log in and fill out a worksheet with no signal at all
+  try{
+    if(DB.team.length>0){
+      const snap = {ts:Date.now(), team:DB.team, roles:DB.roles, clients:DB.clients.map(c=>({id:c.id, first:c.first, last:c.last, name:c.name, clientName:c.clientName, phone:c.phone, email:c.email, address:c.address, propertyAddress:c.propertyAddress}))};
+      localStorage.setItem('gsb-offline-snap', JSON.stringify(snap));
+    } else {
+      const snap = JSON.parse(localStorage.getItem('gsb-offline-snap')||'null');
+      if(snap && snap.team && snap.team.length){ DB.team = snap.team; if(!DB.roles.length && snap.roles) DB.roles = snap.roles; if(!DB.clients.length && snap.clients) DB.clients = snap.clients; }
+    }
+  }catch(e){ console.warn('offline snapshot', e); }
+  if(DB.team.length===0){
+    document.getElementById('app').innerHTML = `<div class="loading">No signal, and this device hasn't downloaded GSB's data yet.<br><br>Connect to the internet once and open the app — after that it works without signal.<br><br><button class="btn" onclick="location.reload()">Try again</button></div>`;
     return;
   }
 
   // One-time migration: earlier versions of this app stored everything as one big blob per collection.
   // If the new per-record collections are empty but old-style data exists, pull it over so nothing is lost.
   setBootStatus('Checking for older data to migrate…');
-  await migrateLegacyBlobStorage();
+  if(!STATE.offlineStart) await migrateLegacyBlobStorage();
 
   if(DB.roles.length===0){
     DB.roles = JSON.parse(JSON.stringify(DEFAULT_ROLES));
-    await save('roles');
+    if(!STATE.offlineStart) await save('roles');
   }
   if(DB.legalDocs.length===0){
     DB.legalDocs = JSON.parse(JSON.stringify(DEFAULT_LEGAL_DOCS));
-    await save('legalDocs');
+    if(!STATE.offlineStart) await save('legalDocs');
   }
   // One-time wording updates for already-saved contract text (only touches the exact old phrases)
   {
@@ -1445,7 +1474,7 @@ async function loadAll(){
       if(!d || typeof d.content!=='string') return;
       FIXES.forEach(([a,b])=>{ if(d.content.includes(a)){ d.content=d.content.split(a).join(b); changed=true; } });
     });
-    if(changed) await save('legalDocs');
+    if(changed) if(!STATE.offlineStart) await save('legalDocs');
   }
   if(DB.legalDocSettings.length===0){
     DB.legalDocSettings = [
@@ -1454,11 +1483,11 @@ async function loadAll(){
       {id:'vendor', mode:'text', fileType:null, fileName:null, dataUrl:null, uploadedAt:null},
       {id:'estimate', mode:'text', fileType:null, fileName:null, dataUrl:null, uploadedAt:null},
     ];
-    await save('legalDocSettings');
+    if(!STATE.offlineStart) await save('legalDocSettings');
   } else if(!DB.legalDocSettings.find(s=>s.id==='estimate')){
     const estimateSlot = {id:'estimate', mode:'text', fileType:null, fileName:null, dataUrl:null, uploadedAt:null};
     DB.legalDocSettings.push(estimateSlot);
-    await saveRecord('legalDocSettings', estimateSlot);
+    if(!STATE.offlineStart) await saveRecord('legalDocSettings', estimateSlot);
   }
   setBootStatus('Finishing up…');
   await migrateData();
@@ -1476,6 +1505,7 @@ async function loadAll(){
     if(d){ STATE.newDraftId = d.id; STATE.newOnsitePhotos = (d.photos||[]).slice(); STATE.newOnsiteBeforePhotos = (d.beforePhotos||[]).slice(); STATE.newPlanFiles = (d.planFiles||[]).slice(); STATE.newOnsiteFloorPlan = d.floorPlan || null; }
   }catch(e){}
   STATE.loaded = true; render();
+  if(STATE.offlineStart){ try{ showToast('📴 Offline mode — you can log in and do on-site worksheets. They save on this device and upload when you are back online.'); }catch(e){} }
   startLiveUpdates();
   // Safety net: if a client signed remotely but closed their page before the follow-up steps finished,
   // finish attaching the project to Clients here (after a short wait so we never race the client's own device).
@@ -1565,7 +1595,7 @@ async function migrateData(){
     if(f.archived===undefined){ f.archived=false; onsiteChanged = true; }
   });
   if(onsiteChanged) await save('onsite');
-  seedStandardMaterials(false).catch(e=>console.warn('material seed', e));   // runs in the background so startup is never slowed
+  if(!STATE.offlineStart) seedStandardMaterials(false).catch(e=>console.warn('material seed', e));   // runs in the background so startup is never slowed
 
   let contractsChanged = false;
   DB.contracts.forEach(c=>{
@@ -1818,7 +1848,7 @@ async function replayOutbox(force){
   } finally { _obReplaying = false; }
 }
 setInterval(()=>{ obUpdateBadge(); }, 6000);
-window.addEventListener('online', ()=>{ setTimeout(()=>replayOutbox(false), 6000); });
+window.addEventListener('online', ()=>{ _authPromise = null; ensureAuth().catch(()=>{}); setTimeout(()=>replayOutbox(false), 6000); });
 setTimeout(()=>{ replayOutbox(false); obUpdateBadge(); }, 9000);
 const LOCAL_TOUCH = {};   // key -> time this device last saved/deleted it (so a slow "pull" can never bring back an older copy)
 const TOMB_KEY = 'gsb-deleted-ids';
@@ -4656,7 +4686,7 @@ function onsiteFormView(){
       <div id="photo-status" class="subtle" style="margin-top:6px;"></div>
 
       <div class="banner-note">Once submitted, this worksheet stays editable until <b>8:30 AM tomorrow</b>. After that it locks, and office will be notified of any changes made before it locks.</div>
-      <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;"><button class="btn ghost" data-action="save-onsite-draft">💾 Save (finish later)</button><button class="btn" data-action="submit-onsite">Submit Worksheet</button></div>
+      <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;"><span id="autosave-status" class="subtle" style="font-size:12px;margin-right:auto;">Auto-save is on — your worksheet saves itself as you type.</span><button class="btn ghost" data-action="save-onsite-draft">💾 Save (finish later)</button><button class="btn" data-action="submit-onsite">Submit Worksheet</button></div>
     </div>`;
 }
 function renderNewFloorPlanPreview(){
@@ -7366,6 +7396,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.09-r</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-b</div>
 </body>
 </html>
