@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.10-c';
+const APP_VERSION = 'v2026.11.10-d';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -5169,8 +5169,9 @@ function renderPricingCalculatorPage(){
           <select id="matsel-${line.id}" data-pricing-action="set-material" data-line="${line.id}" style="flex:1;min-width:0;padding:8px;border:1px solid var(--line);border-radius:5px;">${matOptionsHTML(line.materialId,'')}
           </select></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <input type="number" step="0.01" data-pricing-action="set-material-price" data-line="${line.id}" value="${line.unitPrice||''}" placeholder="Price per unit ($)" style="width:130px;padding:7px;border:1px solid var(--line);border-radius:5px;">
-            <input type="number" data-pricing-action="set-qty" data-line="${line.id}" value="${line.qty||''}" placeholder="Qty" style="width:80px;padding:7px;border:1px solid var(--line);border-radius:5px;">
+            <select data-pricing-action="set-unit-type" data-line="${line.id}" title="How this item is priced" style="padding:7px;border:1px solid var(--line);border-radius:5px;">${Object.keys(UNIT_TYPES).map(u=>`<option value="${u}" ${(line.unitType||'each')===u?'selected':''}>${UNIT_TYPES[u].label}</option>`).join('')}</select>
+            <input type="number" step="0.01" data-pricing-action="set-material-price" data-line="${line.id}" value="${line.unitPrice||''}" placeholder="Price per ${UNIT_TYPES[line.unitType||'each'].short==='ea'?'unit':UNIT_TYPES[line.unitType].short} ($)" style="width:140px;padding:7px;border:1px solid var(--line);border-radius:5px;">
+            <input type="number" data-pricing-action="set-qty" data-line="${line.id}" value="${line.qty||''}" placeholder="${(line.unitType||'each')==='each'?'Qty':'Total '+line.unitType}" style="width:100px;padding:7px;border:1px solid var(--line);border-radius:5px;">
             <span class="subtle">= <b id="pc-line-total-${line.id}">${money(lineTotal)}</b></span>
           </div>
         </div>
@@ -5342,6 +5343,15 @@ function renderSketchesPage(){
     </div>`;
 }
 
+/* Priced by: each, per linear foot (LF) or per square foot (SF) */
+const UNIT_TYPES = { each:{label:'Each', short:'ea'}, LF:{label:'Per LF (linear foot)', short:'LF'}, SF:{label:'Per SF (square foot)', short:'SF'} };
+function guessUnitType(m){
+  if(!m) return 'each';
+  const t = (m.name+' '+(m.size||'')).toLowerCase();
+  if(/\bbase\s?board|crown|casing|molding|moulding|chair rail|quarter round|shoe mold|trim board|\bwire\b|romex|conduit|\bpipe\b|tubing|gutter|flashing|j-bead|corner bead|\blf\b|linear/.test(t)) return 'LF';
+  if(/\btile\b|flooring|laminate|vinyl plank|\bcarpet|insulation|underlayment|backer board|paneling|\bsf\b|square f/.test(t)) return 'SF';
+  return 'each';
+}
 /* ================= MATERIAL PICKER (search + pictures) for the Pricing Calculator ================= */
 function openMatPicker(lineId){
   const f = DB.onsite.find(x=>x.id===STATE.pricingCalcOnsiteId); if(!f || !f.pricingBreakdown) return;
@@ -5384,7 +5394,7 @@ function openMatPicker(lineId){
     if(e.target.closest('#mp-more')){ limit += 120; paint(); return; }
     const p = e.target.closest('[data-mppick]');
     if(p){
-      line.materialId = p.dataset.mppick;
+      line.materialId = p.dataset.mppick; line.unitType = guessUnitType(DB.materials.find(x=>x.id===line.materialId));
       close();
       schedulePricingAutosave();
       render();
@@ -6665,7 +6675,8 @@ Office@gsbconstructions.com`);
       // structural changes (add/remove rows, pick a different item) rebuild the page
       if(action==='add-material-line'){ const nid = uid(); pb.materialLines.push({ id:nid, materialId:'', unitPrice:'', qty:'' }); render(); setTimeout(()=>openMatPicker(nid), 30); return; }
       if(action==='remove-material-line'){ pb.materialLines = pb.materialLines.filter(l=>l.id!==lineId); render(); return; }
-      if(action==='set-material'){ const line=pb.materialLines.find(l=>l.id===lineId); if(line) line.materialId = el.value; render(); return; }
+      if(action==='set-material'){ const line=pb.materialLines.find(l=>l.id===lineId); if(line){ line.materialId = el.value; line.unitType = guessUnitType(DB.materials.find(x=>x.id===el.value)); } render(); return; }
+      if(action==='set-unit-type'){ const line=pb.materialLines.find(l=>l.id===lineId); if(line) line.unitType = el.value; render(); return; }
       if(action==='add-sub-line'){ pb.subLines.push({ id:uid(), vendorId:'', price:'' }); render(); return; }
       if(action==='remove-sub-line'){ pb.subLines = pb.subLines.filter(l=>l.id!==lineId); render(); return; }
       if(action==='set-sub-vendor'){ const line=pb.subLines.find(l=>l.id===lineId); if(line) line.vendorId = el.value; render(); return; }
@@ -7484,6 +7495,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-c</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-d</div>
 </body>
 </html>
