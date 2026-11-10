@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.10-h';
+const APP_VERSION = 'v2026.11.10-i';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -5167,6 +5167,7 @@ function renderPricingCalculatorPage(){
 
     <datalist id="store-list">${storeSuggestions().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
     <div class="section-label">Materials</div>
+    <div class="field" style="max-width:300px;margin-bottom:10px;"><label>Materials Markup (%) — added on top of the material prices below</label><input type="number" data-pricing-action="set-materials-markup" value="${pb.materialsMarkupPct||0}" placeholder="e.g. 30"></div>
     ${(pb.materialLines||[]).map(line=>{
       const lineTotal = (parseFloat(line.unitPrice)||0)*(parseFloat(line.qty)||0);
       return `<div class="list-row">
@@ -5191,7 +5192,6 @@ function renderPricingCalculatorPage(){
       <button class="btn ghost small" data-pricing-action="add-new-material">+ Create New Material</button>
       <button class="btn ghost small" data-action="go-to-materials-page">📋 Manage Materials Catalog</button>
     </div>
-    <div class="field" style="max-width:220px;"><label>Materials Markup (%)</label><input type="number" data-pricing-action="set-materials-markup" value="${pb.materialsMarkupPct||0}"></div>
 
     <div class="section-label">Priced by LF / SF</div>
     <div class="subtle" style="margin-bottom:6px;">For work you charge by the linear foot (LF) or square foot (SF), like baseboard or tile. Search any material from your catalog (or just type a name), choose LF or SF, then enter the price per LF/SF and how many. This is added to the estimate on top of whatever is in the Materials section above, so put an item in one place or the other, not both.</div>
@@ -5434,19 +5434,26 @@ function openMatPicker(lineId, target){
       (items.length>shown.length ? `<div style="text-align:center;margin-top:10px;"><button type="button" class="btn ghost small" id="mp-more">Show more (${items.length-shown.length} more) — or type to narrow it down</button></div>` : '');
   }
   const close = ()=>{ ov.remove(); };
+  let _lastPick = 0;
+  function choose(p){
+    if(Date.now()-_lastPick < 600) return; _lastPick = Date.now();
+    line.materialId = p.dataset.mppick;
+    const pm = DB.materials.find(x=>x.id===line.materialId);
+    if(isMeasure && pm) line.name = pm.name + (pm.size ? ' ('+pm.size+')' : '');
+    close();
+    schedulePricingAutosave();
+    render();
+    try{ showToast('✓ Selected: ' + (pm ? pm.name : 'material')); }catch(e){}
+    setTimeout(()=>{ const pr = document.querySelector('[data-pricing-action="'+(isMeasure?'set-measure-rate':'set-material-price')+'"][data-line="'+lineId+'"]'); if(pr){ pr.focus(); try{ pr.scrollIntoView({block:'center'}); }catch(e){} } }, 60);
+  }
+  // select on finger/mouse release as well as on click: on a tablet the first tap can only close the keyboard, and the click gets lost
+  ov.addEventListener('pointerup', (e)=>{ const p = e.target.closest && e.target.closest('[data-mppick]'); if(p){ e.preventDefault(); choose(p); } });
   ov.addEventListener('click', (e)=>{
     if(e.target === ov || e.target.closest('#mp-close')){ close(); return; }
     const c = e.target.closest('[data-mpcat]'); if(c){ cat = c.dataset.mpcat; limit = 80; paint(); return; }
     if(e.target.closest('#mp-more')){ limit += 120; paint(); return; }
     const p = e.target.closest('[data-mppick]');
-    if(p){
-      line.materialId = p.dataset.mppick;
-      if(isMeasure){ const pm = DB.materials.find(x=>x.id===line.materialId); if(pm) line.name = pm.name + (pm.size ? ' ('+pm.size+')' : ''); }
-      close();
-      schedulePricingAutosave();
-      render();
-      setTimeout(()=>{ const pr = document.querySelector('[data-pricing-action="'+(isMeasure?'set-measure-rate':'set-material-price')+'"][data-line="'+lineId+'"]'); if(pr){ pr.focus(); try{ pr.scrollIntoView({block:'center'}); }catch(e){} } }, 60);
-    }
+    if(p){ choose(p); }
   });
   $('mp-q').addEventListener('input', (e)=>{ q = e.target.value; limit = 80; paint(); });
   paint();
@@ -7556,6 +7563,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-h</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-i</div>
 </body>
 </html>
