@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.10-i';
+const APP_VERSION = 'v2026.11.10-j';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -596,6 +596,7 @@ function startLiveUpdates(){
       snap.docChanges().forEach(ch=>{
         if(ch.doc.metadata.hasPendingWrites) return;   // our own unsent edit
         const rec = ch.doc.data(), idf = RECORD_ID_FIELD[k];
+        if(k==='onsite' && STATE.pricingCalcOnsiteId && rec[idf]===STATE.pricingCalcOnsiteId) return;   // you are editing this one in the calculator: never overwrite it mid-edit
         const idx = DB[k].findIndex(x=>x[idf]===rec[idf]);
         if(ch.type==='removed'){ if(idx>=0){ DB[k].splice(idx,1); changed = true; } return; }
         if(idx>=0){
@@ -1777,6 +1778,7 @@ async function pullFromCloud(manual){
       for(const rec of remote){
         const id = rec[idf]; if(id===undefined || id===null) continue;
         if(tb[k+'/'+id]){ try{ restDelete(FS_PREFIX+KEYS[k], id); }catch(e){} continue; }          // deleted on this device: keep it deleted
+        if(k==='onsite' && STATE.pricingCalcOnsiteId && id===STATE.pricingCalcOnsiteId) continue;   // being edited in the calculator right now
         if((LOCAL_TOUCH[k+'/'+id]||0) >= t0) continue;                                              // changed here while this check was running
         if(pendNow.has(k+'/'+id) && !pend.has(k+'/'+id)) continue;
         if(pend.has(k+'/'+id)){
@@ -5057,7 +5059,8 @@ function calcPricingTotals(pb){
   const licenseFee = parseFloat(pb.licenseFee)||0;
   const inspectionsTotal = (parseFloat(pb.inspectionCount)||0) * (parseFloat(pb.inspectionRate)||0);
   const finishesTotal = calcFinishesTotal(pb);
-  const measureTotal = calcMeasureTotal(pb);
+  const measureBase = calcMeasureTotal(pb);
+  const measureTotal = measureBase * (1 + (parseFloat(pb.materialsMarkupPct)||0)/100);
   const materialsBase = calcMaterialsSubtotal(pb);
   const materialsWithMarkup = materialsBase * (1 + (parseFloat(pb.materialsMarkupPct)||0)/100);
   const laborTotal = (parseFloat(pb.laborRate)||0) * (parseFloat(pb.laborHours)||0);
@@ -5068,7 +5071,7 @@ function calcPricingTotals(pb){
   const preTax = materialsWithMarkup + laborTotal + subsWithMarkup + vendorsWithMarkup + licenseFee + inspectionsTotal + finishesTotal + measureTotal;
   const taxAmount = preTax * (parseFloat(pb.taxPct)||0)/100;
   const grandTotal = preTax + taxAmount;
-  return { materialsBase, materialsWithMarkup, laborTotal, subsBase, subsWithMarkup, vendorsBase, vendorsWithMarkup, licenseFee, inspectionsTotal, finishesTotal, measureTotal, preTax, taxAmount, grandTotal };
+  return { materialsBase, materialsWithMarkup, laborTotal, subsBase, subsWithMarkup, vendorsBase, vendorsWithMarkup, licenseFee, inspectionsTotal, finishesTotal, measureBase, measureTotal, preTax, taxAmount, grandTotal };
 }
 function calcPricingTotalsByCategory(pb){
   const cats = { demo:0, construction:0, ep:0 };
@@ -5086,7 +5089,7 @@ function calcPricingTotalsByCategory(pb){
     cats[cat] += (parseFloat(line.price)||0) * (1 + (parseFloat(pb.vendorsMarkupPct)||0)/100);
   });
   cats.construction += (parseFloat(pb.laborRate)||0) * (parseFloat(pb.laborHours)||0); // labor always counts as construction
-  cats.construction += calcMeasureTotal(pb);
+  cats.construction += calcMeasureTotal(pb) * (1 + (parseFloat(pb.materialsMarkupPct)||0)/100);
   const taxMult = 1 + (parseFloat(pb.taxPct)||0)/100;
   return { demo: cats.demo*taxMult, construction: cats.construction*taxMult, ep: cats.ep*taxMult };
 }
@@ -5141,7 +5144,7 @@ function refreshPricingCalculatorTotals(pb){
   setText('pc-inspections-total', money(totals.inspectionsTotal));
   setText('pc-finishes-total', money(totals.finishesTotal));
   (pb.measureLines||[]).forEach(l=>{ setText('pc-ml-total-'+l.id, money((parseFloat(l.rate)||0)*(parseFloat(l.qty)||0))); });
-  setText('pc-measure-total', money(totals.measureTotal)); setText('pc-gt-measure', money(totals.measureTotal));
+  setText('pc-measure-base', money(totals.measureBase)); setText('pc-measure-total', money(totals.measureTotal)); setText('pc-gt-measure', money(totals.measureTotal));
   setText('pc-gt-license', money(totals.licenseFee));
   setText('pc-gt-inspections', money(totals.inspectionsTotal));
   setText('pc-gt-finishes', money(totals.finishesTotal));
@@ -5167,7 +5170,7 @@ function renderPricingCalculatorPage(){
 
     <datalist id="store-list">${storeSuggestions().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
     <div class="section-label">Materials</div>
-    <div class="field" style="max-width:300px;margin-bottom:10px;"><label>Materials Markup (%) — added on top of the material prices below</label><input type="number" data-pricing-action="set-materials-markup" value="${pb.materialsMarkupPct||0}" placeholder="e.g. 30"></div>
+    <div class="field" style="max-width:300px;margin-bottom:10px;"><label>Materials Markup (%) — added on top of the materials below AND the LF / SF materials</label><input type="number" data-pricing-action="set-materials-markup" value="${pb.materialsMarkupPct||0}" placeholder="e.g. 30"></div>
     ${(pb.materialLines||[]).map(line=>{
       const lineTotal = (parseFloat(line.unitPrice)||0)*(parseFloat(line.qty)||0);
       return `<div class="list-row">
@@ -5194,7 +5197,7 @@ function renderPricingCalculatorPage(){
     </div>
 
     <div class="section-label">Priced by LF / SF</div>
-    <div class="subtle" style="margin-bottom:6px;">For work you charge by the linear foot (LF) or square foot (SF), like baseboard or tile. Search any material from your catalog (or just type a name), choose LF or SF, then enter the price per LF/SF and how many. This is added to the estimate on top of whatever is in the Materials section above, so put an item in one place or the other, not both.</div>
+    <div class="subtle" style="margin-bottom:6px;">For work you charge by the linear foot (LF) or square foot (SF), like baseboard or tile. Search any material from your catalog (or just type a name), choose LF or SF, then enter the price per LF/SF and how many. The Materials Markup % at the top is added to these too. Put an item in one place or the other, not both.</div>
     ${(pb.measureLines||[]).map(l=>{
       const mm = DB.materials.find(m=>m.id===l.materialId);
       return `<div class="list-row"><div class="main">
@@ -5213,7 +5216,7 @@ function renderPricingCalculatorPage(){
         <button class="btn ghost small" data-pricing-action="remove-measure-line" data-line="${l.id}">Remove</button>
       </div>`; }).join('') || `<div class="subtle" style="margin-bottom:8px;">Nothing priced by LF/SF yet.</div>`}
     <button class="btn ghost small" style="margin:10px 0;" data-pricing-action="add-measure-line">+ Add LF / SF Line</button>
-    <div class="subtle">LF / SF Total: <b id="pc-measure-total">${money(totals.measureTotal)}</b></div>
+    <div class="subtle">LF / SF Subtotal: <b id="pc-measure-base">${money(totals.measureBase)}</b> → With Markup: <b id="pc-measure-total">${money(totals.measureTotal)}</b></div>
     <div class="subtle">Materials Subtotal: <span id="pc-materials-base">${money(totals.materialsBase)}</span> → With Markup: <b id="pc-materials-markup">${money(totals.materialsWithMarkup)}</b></div>
 
     <div class="section-label">Labor</div>
@@ -5297,7 +5300,7 @@ function renderPricingCalculatorPage(){
       <tr><td>License (flat fee)</td><td style="text-align:right;" id="pc-gt-license">${money(totals.licenseFee)}</td></tr>
       <tr><td>Inspections</td><td style="text-align:right;" id="pc-gt-inspections">${money(totals.inspectionsTotal)}</td></tr>
       <tr><td>Finishes (flat fees)</td><td style="text-align:right;" id="pc-gt-finishes">${money(totals.finishesTotal)}</td></tr>
-      <tr><td>Priced by LF / SF</td><td style="text-align:right;" id="pc-gt-measure">${money(totals.measureTotal)}</td></tr>
+      <tr><td>Priced by LF / SF (with markup)</td><td style="text-align:right;" id="pc-gt-measure">${money(totals.measureTotal)}</td></tr>
       <tr><td>Tax</td><td style="text-align:right;" id="pc-gt-tax">${money(totals.taxAmount)}</td></tr>
       <tr><td><b>Grand Total</b></td><td style="text-align:right;"><b id="pc-gt-total">${money(totals.grandTotal)}</b></td></tr>
     </table>
@@ -5437,9 +5440,13 @@ function openMatPicker(lineId, target){
   let _lastPick = 0;
   function choose(p){
     if(Date.now()-_lastPick < 600) return; _lastPick = Date.now();
-    line.materialId = p.dataset.mppick;
-    const pm = DB.materials.find(x=>x.id===line.materialId);
-    if(isMeasure && pm) line.name = pm.name + (pm.size ? ' ('+pm.size+')' : '');
+    // look the line up again right now (the page's data can be refreshed while the picker is open)
+    const ff = DB.onsite.find(x=>x.id===STATE.pricingCalcOnsiteId);
+    const cur = ff && ff.pricingBreakdown && ((isMeasure ? ff.pricingBreakdown.measureLines : ff.pricingBreakdown.materialLines)||[]).find(l=>l.id===lineId);
+    if(!cur){ try{ showToast('Could not find that line — please add it again.'); }catch(e){} close(); return; }
+    cur.materialId = p.dataset.mppick;
+    const pm = DB.materials.find(x=>x.id===cur.materialId);
+    if(isMeasure && pm) cur.name = pm.name + (pm.size ? ' ('+pm.size+')' : '');
     close();
     schedulePricingAutosave();
     render();
@@ -7563,6 +7570,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-i</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-j</div>
 </body>
 </html>
