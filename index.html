@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.10-d';
+const APP_VERSION = 'v2026.11.10-e';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -5056,6 +5056,7 @@ function calcPricingTotals(pb){
   const licenseFee = parseFloat(pb.licenseFee)||0;
   const inspectionsTotal = (parseFloat(pb.inspectionCount)||0) * (parseFloat(pb.inspectionRate)||0);
   const finishesTotal = calcFinishesTotal(pb);
+  const measureTotal = calcMeasureTotal(pb);
   const materialsBase = calcMaterialsSubtotal(pb);
   const materialsWithMarkup = materialsBase * (1 + (parseFloat(pb.materialsMarkupPct)||0)/100);
   const laborTotal = (parseFloat(pb.laborRate)||0) * (parseFloat(pb.laborHours)||0);
@@ -5063,10 +5064,10 @@ function calcPricingTotals(pb){
   const subsWithMarkup = subsBase * (1 + (parseFloat(pb.subsMarkupPct)||0)/100);
   const vendorsBase = calcVendorsSubtotal(pb);
   const vendorsWithMarkup = vendorsBase * (1 + (parseFloat(pb.vendorsMarkupPct)||0)/100);
-  const preTax = materialsWithMarkup + laborTotal + subsWithMarkup + vendorsWithMarkup + licenseFee + inspectionsTotal + finishesTotal;
+  const preTax = materialsWithMarkup + laborTotal + subsWithMarkup + vendorsWithMarkup + licenseFee + inspectionsTotal + finishesTotal + measureTotal;
   const taxAmount = preTax * (parseFloat(pb.taxPct)||0)/100;
   const grandTotal = preTax + taxAmount;
-  return { materialsBase, materialsWithMarkup, laborTotal, subsBase, subsWithMarkup, vendorsBase, vendorsWithMarkup, licenseFee, inspectionsTotal, finishesTotal, preTax, taxAmount, grandTotal };
+  return { materialsBase, materialsWithMarkup, laborTotal, subsBase, subsWithMarkup, vendorsBase, vendorsWithMarkup, licenseFee, inspectionsTotal, finishesTotal, measureTotal, preTax, taxAmount, grandTotal };
 }
 function calcPricingTotalsByCategory(pb){
   const cats = { demo:0, construction:0, ep:0 };
@@ -5084,19 +5085,22 @@ function calcPricingTotalsByCategory(pb){
     cats[cat] += (parseFloat(line.price)||0) * (1 + (parseFloat(pb.vendorsMarkupPct)||0)/100);
   });
   cats.construction += (parseFloat(pb.laborRate)||0) * (parseFloat(pb.laborHours)||0); // labor always counts as construction
+  cats.construction += calcMeasureTotal(pb);
   const taxMult = 1 + (parseFloat(pb.taxPct)||0)/100;
   return { demo: cats.demo*taxMult, construction: cats.construction*taxMult, ep: cats.ep*taxMult };
 }
 function defaultPricingBreakdown(){
-  return { materialLines:[], materialsMarkupPct:0, laborRate:0, laborHours:0, subLines:[], subsMarkupPct:0, vendorLines:[], vendorsMarkupPct:0, taxPct:0, licenseFee:2000, inspectionCount:0, inspectionRate:200, finishLines:[] };
+  return { materialLines:[], materialsMarkupPct:0, laborRate:0, laborHours:0, subLines:[], subsMarkupPct:0, vendorLines:[], vendorsMarkupPct:0, taxPct:0, licenseFee:2000, inspectionCount:0, inspectionRate:200, finishLines:[], measureLines:[] };
 }
 function ensurePricingDefaults(pb){
   if(pb.licenseFee===undefined) pb.licenseFee = 2000;
   if(pb.inspectionCount===undefined) pb.inspectionCount = 0;
   if(pb.inspectionRate===undefined) pb.inspectionRate = 200;
   if(!Array.isArray(pb.finishLines)) pb.finishLines = [];
+  if(!Array.isArray(pb.measureLines)) pb.measureLines = [];
   return pb;
 }
+function calcMeasureTotal(pb){ return (pb.measureLines||[]).reduce((s,l)=> s + (parseFloat(l.rate)||0)*(parseFloat(l.qty)||0), 0); }
 function calcFinishesTotal(pb){ return (pb.finishLines||[]).reduce((s,l)=> s + (parseFloat(l.price)||0), 0); }
 let _pcTimer = null, _pcDirty = false;
 function pcStatus(txt){ const el = document.getElementById('pc-save-status'); if(el) el.textContent = txt; }
@@ -5135,6 +5139,8 @@ function refreshPricingCalculatorTotals(pb){
   setText('pc-gt-vendors', money(totals.vendorsWithMarkup));
   setText('pc-inspections-total', money(totals.inspectionsTotal));
   setText('pc-finishes-total', money(totals.finishesTotal));
+  (pb.measureLines||[]).forEach(l=>{ setText('pc-ml-total-'+l.id, money((parseFloat(l.rate)||0)*(parseFloat(l.qty)||0))); });
+  setText('pc-measure-total', money(totals.measureTotal)); setText('pc-gt-measure', money(totals.measureTotal));
   setText('pc-gt-license', money(totals.licenseFee));
   setText('pc-gt-inspections', money(totals.inspectionsTotal));
   setText('pc-gt-finishes', money(totals.finishesTotal));
@@ -5169,9 +5175,8 @@ function renderPricingCalculatorPage(){
           <select id="matsel-${line.id}" data-pricing-action="set-material" data-line="${line.id}" style="flex:1;min-width:0;padding:8px;border:1px solid var(--line);border-radius:5px;">${matOptionsHTML(line.materialId,'')}
           </select></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <select data-pricing-action="set-unit-type" data-line="${line.id}" title="How this item is priced" style="padding:7px;border:1px solid var(--line);border-radius:5px;">${Object.keys(UNIT_TYPES).map(u=>`<option value="${u}" ${(line.unitType||'each')===u?'selected':''}>${UNIT_TYPES[u].label}</option>`).join('')}</select>
-            <input type="number" step="0.01" data-pricing-action="set-material-price" data-line="${line.id}" value="${line.unitPrice||''}" placeholder="Price per ${UNIT_TYPES[line.unitType||'each'].short==='ea'?'unit':UNIT_TYPES[line.unitType].short} ($)" style="width:140px;padding:7px;border:1px solid var(--line);border-radius:5px;">
-            <input type="number" data-pricing-action="set-qty" data-line="${line.id}" value="${line.qty||''}" placeholder="${(line.unitType||'each')==='each'?'Qty':'Total '+line.unitType}" style="width:100px;padding:7px;border:1px solid var(--line);border-radius:5px;">
+            <input type="number" step="0.01" data-pricing-action="set-material-price" data-line="${line.id}" value="${line.unitPrice||''}" placeholder="Price per unit ($)" style="width:130px;padding:7px;border:1px solid var(--line);border-radius:5px;">
+            <input type="number" data-pricing-action="set-qty" data-line="${line.id}" value="${line.qty||''}" placeholder="Qty" style="width:80px;padding:7px;border:1px solid var(--line);border-radius:5px;">
             <span class="subtle">= <b id="pc-line-total-${line.id}">${money(lineTotal)}</b></span>
           </div>
         </div>
@@ -5184,6 +5189,33 @@ function renderPricingCalculatorPage(){
       <button class="btn ghost small" data-action="go-to-materials-page">📋 Manage Materials Catalog</button>
     </div>
     <div class="field" style="max-width:220px;"><label>Materials Markup (%)</label><input type="number" data-pricing-action="set-materials-markup" value="${pb.materialsMarkupPct||0}"></div>
+
+    <div class="section-label">Priced by LF / SF</div>
+    <div class="subtle" style="margin-bottom:6px;">For work you charge by the linear foot (LF) or square foot (SF), like baseboard or tile. Pick one of the materials you already added above (or type a name), choose LF or SF, then enter what you charge per LF/SF and how many. This is added to the estimate on top of the material cost above.</div>
+    ${(pb.measureLines||[]).map(l=>{
+      const chosen = (pb.materialLines||[]).filter(x=>x.materialId).map(x=>DB.materials.find(m=>m.id===x.materialId)).filter(Boolean);
+      const uniq = chosen.filter((m,i)=>chosen.indexOf(m)===i);
+      const isOther = l.materialId==='__other' || (!l.materialId && l.name);
+      return `<div class="list-row"><div class="main">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+          ${matThumbHTML(DB.materials.find(m=>m.id===l.materialId), 34)}
+          <select data-pricing-action="set-measure-material" data-line="${l.id}" style="flex:1;min-width:200px;padding:8px;border:1px solid var(--line);border-radius:5px;">
+            <option value="">— Pick one of your materials —</option>
+            ${uniq.map(m=>`<option value="${m.id}" ${l.materialId===m.id?'selected':''}>${esc(m.name)}${m.size?' ('+esc(m.size)+')':''}</option>`).join('')}
+            <option value="__other" ${isOther?'selected':''}>✏️ Other (type a name)</option>
+          </select>
+          ${isOther?`<input type="text" data-pricing-action="set-measure-name" data-line="${l.id}" value="${esc(l.name||'')}" placeholder="What is it? (e.g. Baseboard install)" style="flex:1;min-width:180px;padding:7px;border:1px solid var(--line);border-radius:5px;">`:''}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select data-pricing-action="set-measure-unit" data-line="${l.id}" style="padding:7px;border:1px solid var(--line);border-radius:5px;"><option value="LF" ${(l.unit||'LF')==='LF'?'selected':''}>LF (linear foot)</option><option value="SF" ${l.unit==='SF'?'selected':''}>SF (square foot)</option></select>
+          <input type="number" step="0.01" data-pricing-action="set-measure-rate" data-line="${l.id}" value="${l.rate||''}" placeholder="Charge per ${l.unit||'LF'} ($)" style="width:150px;padding:7px;border:1px solid var(--line);border-radius:5px;">
+          <input type="number" step="0.01" data-pricing-action="set-measure-qty" data-line="${l.id}" value="${l.qty||''}" placeholder="Total ${l.unit||'LF'}" style="width:110px;padding:7px;border:1px solid var(--line);border-radius:5px;">
+          <span class="subtle">= <b id="pc-ml-total-${l.id}">${money((parseFloat(l.rate)||0)*(parseFloat(l.qty)||0))}</b></span>
+        </div></div>
+        <button class="btn ghost small" data-pricing-action="remove-measure-line" data-line="${l.id}">Remove</button>
+      </div>`; }).join('') || `<div class="subtle" style="margin-bottom:8px;">Nothing priced by LF/SF yet.</div>`}
+    <button class="btn ghost small" style="margin:10px 0;" data-pricing-action="add-measure-line">+ Add LF / SF Line</button>
+    <div class="subtle">LF / SF Total: <b id="pc-measure-total">${money(totals.measureTotal)}</b></div>
     <div class="subtle">Materials Subtotal: <span id="pc-materials-base">${money(totals.materialsBase)}</span> → With Markup: <b id="pc-materials-markup">${money(totals.materialsWithMarkup)}</b></div>
 
     <div class="section-label">Labor</div>
@@ -5267,6 +5299,7 @@ function renderPricingCalculatorPage(){
       <tr><td>License (flat fee)</td><td style="text-align:right;" id="pc-gt-license">${money(totals.licenseFee)}</td></tr>
       <tr><td>Inspections</td><td style="text-align:right;" id="pc-gt-inspections">${money(totals.inspectionsTotal)}</td></tr>
       <tr><td>Finishes (flat fees)</td><td style="text-align:right;" id="pc-gt-finishes">${money(totals.finishesTotal)}</td></tr>
+      <tr><td>Priced by LF / SF</td><td style="text-align:right;" id="pc-gt-measure">${money(totals.measureTotal)}</td></tr>
       <tr><td>Tax</td><td style="text-align:right;" id="pc-gt-tax">${money(totals.taxAmount)}</td></tr>
       <tr><td><b>Grand Total</b></td><td style="text-align:right;"><b id="pc-gt-total">${money(totals.grandTotal)}</b></td></tr>
     </table>
@@ -5343,15 +5376,6 @@ function renderSketchesPage(){
     </div>`;
 }
 
-/* Priced by: each, per linear foot (LF) or per square foot (SF) */
-const UNIT_TYPES = { each:{label:'Each', short:'ea'}, LF:{label:'Per LF (linear foot)', short:'LF'}, SF:{label:'Per SF (square foot)', short:'SF'} };
-function guessUnitType(m){
-  if(!m) return 'each';
-  const t = (m.name+' '+(m.size||'')).toLowerCase();
-  if(/\bbase\s?board|crown|casing|molding|moulding|chair rail|quarter round|shoe mold|trim board|\bwire\b|romex|conduit|\bpipe\b|tubing|gutter|flashing|j-bead|corner bead|\blf\b|linear/.test(t)) return 'LF';
-  if(/\btile\b|flooring|laminate|vinyl plank|\bcarpet|insulation|underlayment|backer board|paneling|\bsf\b|square f/.test(t)) return 'SF';
-  return 'each';
-}
 /* ================= MATERIAL PICKER (search + pictures) for the Pricing Calculator ================= */
 function openMatPicker(lineId){
   const f = DB.onsite.find(x=>x.id===STATE.pricingCalcOnsiteId); if(!f || !f.pricingBreakdown) return;
@@ -5394,7 +5418,7 @@ function openMatPicker(lineId){
     if(e.target.closest('#mp-more')){ limit += 120; paint(); return; }
     const p = e.target.closest('[data-mppick]');
     if(p){
-      line.materialId = p.dataset.mppick; line.unitType = guessUnitType(DB.materials.find(x=>x.id===line.materialId));
+      line.materialId = p.dataset.mppick;
       close();
       schedulePricingAutosave();
       render();
@@ -6675,14 +6699,17 @@ Office@gsbconstructions.com`);
       // structural changes (add/remove rows, pick a different item) rebuild the page
       if(action==='add-material-line'){ const nid = uid(); pb.materialLines.push({ id:nid, materialId:'', unitPrice:'', qty:'' }); render(); setTimeout(()=>openMatPicker(nid), 30); return; }
       if(action==='remove-material-line'){ pb.materialLines = pb.materialLines.filter(l=>l.id!==lineId); render(); return; }
-      if(action==='set-material'){ const line=pb.materialLines.find(l=>l.id===lineId); if(line){ line.materialId = el.value; line.unitType = guessUnitType(DB.materials.find(x=>x.id===el.value)); } render(); return; }
-      if(action==='set-unit-type'){ const line=pb.materialLines.find(l=>l.id===lineId); if(line) line.unitType = el.value; render(); return; }
+      if(action==='set-material'){ const line=pb.materialLines.find(l=>l.id===lineId); if(line){ line.materialId = el.value; } render(); return; }
       if(action==='add-sub-line'){ pb.subLines.push({ id:uid(), vendorId:'', price:'' }); render(); return; }
       if(action==='remove-sub-line'){ pb.subLines = pb.subLines.filter(l=>l.id!==lineId); render(); return; }
       if(action==='set-sub-vendor'){ const line=pb.subLines.find(l=>l.id===lineId); if(line) line.vendorId = el.value; render(); return; }
       if(action==='add-vendor-line'){ pb.vendorLines.push({ id:uid(), vendorId:'', price:'' }); render(); return; }
       if(action==='remove-vendor-line'){ pb.vendorLines = pb.vendorLines.filter(l=>l.id!==lineId); render(); return; }
       if(action==='set-vendor-vendor'){ const line=pb.vendorLines.find(l=>l.id===lineId); if(line) line.vendorId = el.value; render(); return; }
+      if(action==='add-measure-line'){ pb.measureLines.push({ id:uid(), materialId:'', name:'', unit:'LF', rate:'', qty:'' }); render(); return; }
+      if(action==='remove-measure-line'){ pb.measureLines = pb.measureLines.filter(l=>l.id!==lineId); render(); return; }
+      if(action==='set-measure-material'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l){ l.materialId = el.value; if(el.value && el.value!=='__other'){ const m = DB.materials.find(x=>x.id===el.value); l.name = m ? m.name : ''; } } render(); return; }
+      if(action==='set-measure-unit'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.unit = el.value; render(); return; }
       if(action==='add-finish-line'){ pb.finishLines.push({ id:uid(), name:'', price:'' }); render(); return; }
       if(action==='remove-finish-line'){ pb.finishLines = pb.finishLines.filter(l=>l.id!==lineId); render(); return; }
       if(action==='add-new-material'){ STATE.matPhoto = undefined; STATE.modal = { type:'new-material-form' }; render(); return; }
@@ -6712,6 +6739,9 @@ Office@gsbconstructions.com`);
       if(action==='set-license-fee'){ pb.licenseFee = el.value; }
       if(action==='set-inspection-count'){ pb.inspectionCount = el.value; }
       if(action==='set-inspection-rate'){ pb.inspectionRate = el.value; }
+      if(action==='set-measure-name'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.name = el.value; }
+      if(action==='set-measure-rate'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.rate = el.value; }
+      if(action==='set-measure-qty'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.qty = el.value; }
       if(action==='set-finish-name'){ const line=pb.finishLines.find(l=>l.id===lineId); if(line) line.name = el.value; }
       if(action==='set-finish-price'){ const line=pb.finishLines.find(l=>l.id===lineId); if(line) line.price = el.value; }
       refreshPricingCalculatorTotals(pb);
@@ -7495,6 +7525,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-d</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-e</div>
 </body>
 </html>
