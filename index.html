@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.10-e';
+const APP_VERSION = 'v2026.11.10-f';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -4824,6 +4824,7 @@ function onsiteDetailView(f){
       <div class="section-label">Site Notes & Flags</div>
       <div>${f.flags.map(s=>`<span class="tag ${s.includes('concern')||s.includes('asbestos')?'overdue':'ok'}" style="margin:0 6px 6px 0;">${esc(s)}</span>`).join('') || '<span class="subtle">None flagged</span>'}</div>
       ${notesSection('Owner-Supplied Items', f.owner)}${notesSection('Follow-Up / Next Steps', f.followup)}
+      ${shoppingListHTML(f)}
       <div class="section-label">Floor Plan Sketch</div>
       ${f.floorPlan ? `
         <div class="photo-card" style="max-width:260px;"><img src="${f.floorPlan.snapshot}">
@@ -5164,6 +5165,7 @@ function renderPricingCalculatorPage(){
     <div class="subtle" style="margin-bottom:8px;">${esc(f.clientName||'')}${f.jobName?' — '+esc(f.jobName):''} · <span id="pc-save-status-top">Auto-saves as you type</span></div>
     <div class="subtle">${esc(f.clientName)} — ${esc(f.propertyAddress)}</div>
 
+    <datalist id="store-list">${storeSuggestions().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
     <div class="section-label">Materials</div>
     ${(pb.materialLines||[]).map(line=>{
       const lineTotal = (parseFloat(line.unitPrice)||0)*(parseFloat(line.qty)||0);
@@ -5174,6 +5176,7 @@ function renderPricingCalculatorPage(){
           <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;">${matThumbHTML(DB.materials.find(x=>x.id===line.materialId), 38)}
           <select id="matsel-${line.id}" data-pricing-action="set-material" data-line="${line.id}" style="flex:1;min-width:0;padding:8px;border:1px solid var(--line);border-radius:5px;">${matOptionsHTML(line.materialId,'')}
           </select></div>
+          <div style="margin-bottom:6px;"><input type="text" list="store-list" data-pricing-action="set-material-store" data-line="${line.id}" value="${esc(line.store||'')}" placeholder="🛒 Where will you buy it? (e.g. Home Depot) — for us only, not on the estimate" autocomplete="off" style="width:100%;box-sizing:border-box;padding:7px;border:1px dashed var(--line);border-radius:5px;"></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <input type="number" step="0.01" data-pricing-action="set-material-price" data-line="${line.id}" value="${line.unitPrice||''}" placeholder="Price per unit ($)" style="width:130px;padding:7px;border:1px solid var(--line);border-radius:5px;">
             <input type="number" data-pricing-action="set-qty" data-line="${line.id}" value="${line.qty||''}" placeholder="Qty" style="width:80px;padding:7px;border:1px solid var(--line);border-radius:5px;">
@@ -5373,6 +5376,28 @@ function renderSketchesPage(){
     <div class="section-label">Signed &amp; Completed Projects</div>
     <div class="card" style="padding:8px 20px;">
       ${past.length===0 ? `<div class="subtle" style="padding:10px 0;">Projects move here after the contract is signed. Their sketches are kept.</div>` : past.map(sketchRow).join('')}
+    </div>`;
+}
+
+
+/* ===== Where to buy (internal only — never shown on the client estimate) ===== */
+function storeSuggestions(){
+  const base = ['Home Depot','Lowe\'s','Ferguson','Floor & Decor','Sherwin-Williams','Builders FirstSource','84 Lumber','Supplier (call-in)'];
+  const seen = new Set(base.map(x=>x.toLowerCase())); const out = base.slice();
+  DB.onsite.forEach(f=>((f.pricingBreakdown&&f.pricingBreakdown.materialLines)||[]).forEach(l=>{ const t=(l.store||'').trim(); if(t && !seen.has(t.toLowerCase())){ seen.add(t.toLowerCase()); out.push(t); } }));
+  return out;
+}
+function shoppingListHTML(f){
+  const lines = ((f.pricingBreakdown && f.pricingBreakdown.materialLines) || []).filter(l=>l.materialId || l.store);
+  if(!lines.length) return '';
+  const groups = {};
+  lines.forEach(l=>{ const k = (l.store||'').trim() || 'Store not set yet'; (groups[k] = groups[k]||[]).push(l); });
+  const names = Object.keys(groups).sort((a,b)=> a==='Store not set yet' ? 1 : b==='Store not set yet' ? -1 : a.localeCompare(b));
+  return `<div class="section-label">🛒 Where to Buy Materials <span class="tag pending" style="margin-left:6px;">Internal — not on the client estimate</span></div>
+    <div class="card" style="padding:6px 16px;">${names.map(n=>{
+      const ls = groups[n]; const sub = ls.reduce((a,l)=>a+(parseFloat(l.unitPrice)||0)*(parseFloat(l.qty)||0),0);
+      return `<div style="padding:8px 0;border-bottom:1px solid var(--line);"><div style="display:flex;justify-content:space-between;gap:8px;"><b>${esc(n)}</b><span class="subtle">Cost at this store: <b>${money(sub)}</b></span></div>
+        ${ls.map(l=>{ const m = DB.materials.find(x=>x.id===l.materialId); return `<div style="display:flex;align-items:center;gap:8px;margin-top:6px;">${matThumbHTML(m,30)}<span style="flex:1;min-width:0;">${m?esc(m.name)+(m.size?' ('+esc(m.size)+')':''):'(material not picked)'}</span><span class="subtle">${esc(String(l.qty||'—'))} × ${l.unitPrice?money(parseFloat(l.unitPrice)):'—'}</span></div>`; }).join('')}</div>`; }).join('')}
     </div>`;
 }
 
@@ -6739,6 +6764,7 @@ Office@gsbconstructions.com`);
       if(action==='set-license-fee'){ pb.licenseFee = el.value; }
       if(action==='set-inspection-count'){ pb.inspectionCount = el.value; }
       if(action==='set-inspection-rate'){ pb.inspectionRate = el.value; }
+      if(action==='set-material-store'){ const line=pb.materialLines.find(l=>l.id===lineId); if(line) line.store = el.value; }
       if(action==='set-measure-name'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.name = el.value; }
       if(action==='set-measure-rate'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.rate = el.value; }
       if(action==='set-measure-qty'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.qty = el.value; }
@@ -7525,6 +7551,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-e</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-f</div>
 </body>
 </html>
