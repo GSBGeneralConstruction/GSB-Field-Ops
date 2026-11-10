@@ -5335,12 +5335,43 @@ function renderPricingCalculatorPage(){
 }
 function customerViewHTML(f, pb){
   const pv = pbEstimatePreview(pb);
-  const e = { pricing:pv.pricing, permitDetail:pv.permitDetail, finishes:pv.finishes, laborFlats:pv.laborFlats };
-  return `<div class="banner-note" style="margin:10px 0;">👁 This is what your customer will see on the estimate. Your materials, markup, store names and hourly rates are NOT shown to them — only the totals below.</div>
-    <div class="card">
-      <div style="font-weight:700;font-size:16px;">${esc(f.jobName||(f.clientName+' — Project'))}</div>
-      <div class="subtle" style="margin-bottom:10px;">${esc(f.clientName||'')}${f.propertyAddress?' · '+esc(f.propertyAddress):''}</div>
+  const em = clientEmailFor(f.clientName,f.phone)||f.email||'';
+  const e = { jobName:(f.jobName||(f.clientName+' — Project')), date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:em,
+    demo:f.demo, constr:f.constr, ep:f.ep, pricing:pv.pricing, permitDetail:pv.permitDetail, finishes:pv.finishes, laborFlats:pv.laborFlats };
+  const total = totalEstimate(e);
+  const pay = { total, p1:Math.round(total*0.1), p2:Math.round(total*0.4), p3:Math.round(total*0.15), p4:Math.round(total*0.15), p5:Math.round(total*0.1), p6:Math.round(total*0.05), p7:Math.round(total*0.05) };
+  const c = { clientName:e.clientName, clientPhone:e.clientPhone, address:e.address, jobName:e.jobName, date:todayStr(), constr:e.constr, pricing:pay, pageInitials:{} };
+  const hdr = `<div class="mono" style="font-size:11px;color:var(--muted);">13311 SW 9th Pl, Davie, FL 33325 | 954-605-4746 | Office@gsbconstructions.com</div>
+      <div style="font-size:10.5px;color:var(--muted);margin-bottom:12px;">Florida License #CGC1539336</div>`;
+  return `<div class="banner-note" style="margin:10px 0;">👁 This is exactly what your customer will see — first the Estimate, then the Contract that gets built from it. Your materials, markup, store names and hourly rates are NOT shown to them. (Nothing is saved or sent from this screen.)</div>
+    <div class="section-label">1. The Estimate</div>
+    <div style="border:1px solid var(--line);border-radius:8px;padding:22px;background:#fff;">
+      ${hdr}
+      <h3 class="disp" style="font-size:17px;">PROJECT ESTIMATE</h3>
+      <div class="detail-grid" style="margin-bottom:12px;">${dg('Job Name',e.jobName)}${dg('Date',fmtDate(e.date))}${dg('Client',e.clientName)}${dg('Phone',e.clientPhone)}${dg('Address',e.address)}${dg('Email',e.clientEmail)}</div>
+      ${notesSection('Demolition', e.demo)}${notesSection('Construction & Installation', e.constr)}${notesSection('Electrical & Plumbing', e.ep)}
+      <div class="section-label">Estimated Pricing</div>
       ${estimatePricingTableHTML(e)}
+      ${legalSlotSettings('estimate').mode==='pdf' ? uploadedDocPreviewHTML(legalSlotSettings('estimate'), 260) : `<div class="subtle" style="margin-top:12px;">${getEstimateDisclaimerHtml()}</div>`}
+    </div>
+    <div class="section-label">2. The Contract (built from the estimate)</div>
+    <div style="border:1px solid var(--line);border-radius:8px;padding:22px;background:#fff;">
+      ${hdr}
+      <h3 class="disp" style="font-size:17px;">CONSTRUCTION CONTRACT AGREEMENT</h3>
+      <div class="detail-grid" style="margin-bottom:12px;">${dg('Job Name',c.jobName)}${dg('Owner Name',c.clientName)}${dg('Owner Phone',c.clientPhone)}${dg('Project Address',c.address)}${dg('Contract Date',fmtDate(c.date))}</div>
+      ${notesSection('Scope Summary', c.constr)}
+      <div class="section-label">Payment Schedule</div>
+      <table class="hist">
+        <tr><td>Total Contract Price</td><td style="text-align:right;"><b>${money(pay.total)}</b></td></tr>
+        <tr><td>1. Deposit (10%)</td><td style="text-align:right;">${money(pay.p1)}</td></tr>
+        <tr><td>2. First Progress (40%)</td><td style="text-align:right;">${money(pay.p2)}</td></tr>
+        <tr><td>3. Second Progress</td><td style="text-align:right;">${money(pay.p3)}</td></tr>
+        <tr><td>4. Third Progress</td><td style="text-align:right;">${money(pay.p4)}</td></tr>
+        <tr><td>5. Fourth Progress</td><td style="text-align:right;">${money(pay.p5)}</td></tr>
+        <tr><td>6. Fifth Progress</td><td style="text-align:right;">${money(pay.p6)}</td></tr>
+        <tr><td>7. Final Payment</td><td style="text-align:right;">${money(pay.p7)}</td></tr>
+      </table>
+      <details style="margin-top:14px;"><summary style="cursor:pointer;font-weight:600;">Show the full contract pages (1–5)</summary><div style="margin-top:10px;">${contractPagesReadHTML(c, false)}</div></details>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap;">
       <button class="btn ghost" data-pricing-action="pc-view" data-view="edit">← Back to Calculator</button>
