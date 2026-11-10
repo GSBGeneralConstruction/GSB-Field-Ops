@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.10-f';
+const APP_VERSION = 'v2026.11.10-g';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -5595,7 +5595,13 @@ const STD_MATERIALS_V2 = [
  ['Misc / Jobsite','Plastic Sheeting 4 mil','20x100 ft','roll'],['Misc / Jobsite','Plastic Sheeting 6 mil','20x100 ft','roll'],['Misc / Jobsite','Zip Wall Poles / Dust Barrier','each','tool'],['Misc / Jobsite','Zipper Door (dust)','each','roll'],['Misc / Jobsite','Contractor Trash Bags 55 gal','box of 32','bag'],['Misc / Jobsite','Ram Board Floor Protection','38" x 100 ft','roll'],['Misc / Jobsite','Rosin Paper Floor Cover','roll','roll'],['Misc / Jobsite','Cardboard Floor Protection','roll','roll'],['Misc / Jobsite','Shop Vac Bags / Filters','pack','bag'],['Misc / Jobsite','HEPA Vacuum Filter','each','bag'],['Misc / Jobsite','Rags','box','bag'],['Misc / Jobsite','Zip Ties Heavy-Duty','bag','tape'],['Misc / Jobsite','Duct Tape','roll','tape'],['Misc / Jobsite','Caution Tape','roll','tape'],['Misc / Jobsite','Dumpster 10 yd','per haul','box'],['Misc / Jobsite','Dumpster 20 yd','per haul','box'],['Misc / Jobsite','Dumpster 30 yd','per haul','box'],['Misc / Jobsite','Portable Toilet','per month','box'],['Misc / Jobsite','Permit Fee','each','box'],['Misc / Jobsite','Delivery Fee','each','box'],['Misc / Jobsite','Disposal Fee','each','box'],['Misc / Jobsite','Restocking Fee','each','box'],
 ];
 function stdMatId(m){ return 'std-' + (m[1]+'-'+m[2]).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''); }
-const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2';
+const STD_MATERIALS_V3 = [
+ ['Doors & Trim','Corner Round 3/4" Primed Pine','8 ft','board'],['Doors & Trim','Corner Round 11/16" MDF','8 ft','board'],['Doors & Trim','Corner Round 3/4" Poplar','8 ft','board'],['Doors & Trim','Corner Round 3/4" Primed Pine','12 ft','board'],
+ ['Doors & Trim','Quarter Round 3/4" Primed','8 ft','board'],['Doors & Trim','Quarter Round 3/4" Pine (stain grade)','8 ft','board'],['Doors & Trim','Base Cap Molding 3/4"','8 ft','board'],
+ ['Doors & Trim','Rubber Cove Base 4"','120 ft roll','roll'],['Doors & Trim','Outside Corner Block (baseboard)','each','block'],['Doors & Trim','Inside Corner Block (baseboard)','each','block'],
+ ['Paint & Caulk','Backer Rod 3/8"','20 ft','roll'],['Paint & Caulk','Backer Rod 1/2"','20 ft','roll'],['Paint & Caulk','Backer Rod 3/4"','20 ft','roll'],['Paint & Caulk','Paintable Caulk (trim & crown)','10 oz tube','tube'],
+];
+const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3';
 function matList(){ return DB.materials.filter(m=>!m.system); }
 /* Material picker for the Pricing Calculator: full scrolling list, or filtered while you type in the search box */
 function matOptionsHTML(selectedId, query){
@@ -5672,7 +5678,7 @@ function matThumbHTML(m, size){
 async function seedStandardMaterials(force){
   const have = new Set(DB.materials.map(m=>m.id));
   const offline = (typeof navigator!=='undefined' && navigator.onLine===false);
-  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2} ];
+  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2}, {marker:MAT_SEED_MARKER3, items:STD_MATERIALS_V3} ];
   const added = [];
   for(const bt of batches){
     if(!force){ if(have.has(bt.marker)) continue; if(offline) continue; }   // never seed from an empty offline cache
@@ -7551,6 +7557,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-f</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-g</div>
 </body>
 </html>
