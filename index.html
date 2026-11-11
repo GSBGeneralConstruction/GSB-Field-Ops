@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.11-l';
+const APP_VERSION = 'v2026.11.11-m';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -1326,9 +1326,9 @@ function renderPublicSignBody(c){
         </table>
         ${(()=>{ const cs = legalSlotSettings('construction'); return cs.mode==='pdf' ? `<div class="section-label">Contract Document</div>${uploadedDocPreviewHTML(cs, 380)}` : `<div class="section-label">Full Agreement</div><div class="legal-block" style="max-height:none;overflow:visible;">${getContractPages().map(pg=>pg.html).join('<hr style="border:none;border-top:1px dashed var(--line);margin:10px 0;">')}</div>`; })()}
         ${alreadySigned ? `
-          <div class="section-label">Signature — Captured</div>
-          <img src="${c.signature}" style="border:1px solid var(--line);border-radius:6px;background:#fff;height:100px;">
-          <div class="subtle">Signed ${fmtDateTime(c.signedAt)}</div>
+          <div class="section-label">${c.signedOnPaper?'Signed on Paper':'Signature — Captured'}</div>
+          ${c.signature ? `<img src="${c.signature}" style="border:1px solid var(--line);border-radius:6px;background:#fff;height:100px;">` : ''}
+          <div class="subtle">Signed ${fmtDateTime(c.signedAt)}${c.signedOnPaper?' — a signed paper copy is on file with GSB General Construction Inc.':''}</div>
           <div style="text-align:center;margin-top:16px;">
             <button class="btn" data-action="public-print">Print / Save This Copy</button>
           </div>
@@ -4105,6 +4105,7 @@ function render(){
   attachHandlers();
   if(STATE.view==='onsite' && STATE.subtab.onsite==='new'){ attachPhotoCapture(); attachBeforePhotoCapture(); renderNewFloorPlanPreview(); renderNewPlanFiles(); }
   if(STATE.modal && STATE.modal.sigCanvasId) initSignaturePad(STATE.modal.sigCanvasId);
+  if(STATE.modal && STATE.modal.type==='contract-detail' && document.getElementById('paper-cam-in')) bindPaperScan(STATE.modal.data);
   if(STATE.modal && STATE.modal.type==='permit-form') attachPermitPhotoCapture();
   if(STATE.modal && STATE.modal.type==='project-photo-form') attachGenericPhotoCapture();
   if((STATE.modal && STATE.modal.type==='new-material-form') || STATE.view==='materials') attachMaterialPhotoCapture();
@@ -4948,7 +4949,18 @@ function printDocument(title, bodyHtml){
   </style></head><body>${bodyHtml}<script>window.onload=()=>{window.print();}<\/script></body></html>`);
   w.document.close();
 }
-function contractPrintBody(c){
+function paperSignatureBlockHTML(c){
+  const line = (label, w)=>`<div style="display:inline-block;width:${w}px;border-bottom:1px solid #000;height:28px;vertical-align:bottom;"></div><span style="font-size:11px;margin:0 14px 0 6px;">${label}</span>`;
+  return `<div style="margin-top:14px;line-height:3;">
+      <p style="margin:0;font-weight:bold;">OWNER</p>
+      <div>${line('Signature',300)}${line('Date',110)}</div>
+      <div>${line('Print name',300)}</div>
+      <p style="margin:18px 0 0;font-weight:bold;">CONTRACTOR — GSB General Construction Inc.</p>
+      <div>${line('Signature',300)}${line('Date',110)}</div>
+      <div>${line('Print name / Title',300)}</div>
+    </div>`;
+}
+function contractPrintBody(c, paper){
   const initials = c.pageInitials || {};
   const pagesHtml = getContractPages().map(pg => `
     <div class="contract-page">
@@ -4976,8 +4988,10 @@ function contractPrintBody(c){
       ` : ''}
       ${pg.page===5 ? `
         <h4>Signatures</h4>
-        ${c.signature ? `<img class="sig" src="${c.signature}"><div class="sub" style="text-align:left;">Contractor/Owner Signed ${fmtDateTime(c.signedAt)}</div>` : '<p>Not yet signed.</p>'}
-      ` : `<div class="page-initials"><span>Owner has read and initialed this page:</span><b>${esc(initials[pg.page]||'_____')}</b></div>`}
+        ${c.signature ? `<img class="sig" src="${c.signature}"><div class="sub" style="text-align:left;">Contractor/Owner Signed ${fmtDateTime(c.signedAt)}</div>`
+          : c.signedOnPaper ? `<p>Signed on paper on ${fmtDateTime(c.signedAt)}. The signed paper copy is on file with GSB General Construction Inc.</p>`
+          : paper ? paperSignatureBlockHTML(c) : '<p>Not yet signed.</p>'}
+      ` : `<div class="page-initials"><span>Owner has read and initialed this page:</span><b>${esc(initials[pg.page]|| (paper ? '____________' : '_____'))}</b></div>`}
       <div class="page-footer">GSB General Construction Inc &nbsp;•&nbsp; License #CGC1539336 &nbsp;•&nbsp; Page ${pg.page} of 5</div>
     </div>
   `).join('');
@@ -5990,6 +6004,20 @@ function contractPagesReadHTML(c, editable){
   `).join('');
 }
 
+function bindPaperScan(c){
+  if(!STATE.paperScans || STATE.paperScans.cid!==c.id) STATE.paperScans = {cid:c.id, arr:[]};
+  const box = document.getElementById('paper-photos');
+  const paint = ()=>{
+    if(!box) return;
+    box.innerHTML = STATE.paperScans.arr.map((p,i)=>`<div class="photo-card"><img src="${p.dataUrl}"><div class="cap-wrap"><div class="subtle" style="font-size:12px;">Photo ${i+1}</div><button type="button" class="rm" data-paper-rm="${p.id}">Remove</button></div></div>`).join('') || '<span class="subtle">No photos added yet.</span>';
+    box.querySelectorAll('[data-paper-rm]').forEach(b=>b.addEventListener('click',()=>{ STATE.paperScans.arr = STATE.paperScans.arr.filter(x=>x.id!==b.dataset.paperRm); paint(); }));
+  };
+  bindPhotoButtons('paper-cam-btn','paper-cam-in','paper-up-btn','paper-up-in', ()=>STATE.paperScans.arr, paint);
+}
+function paperScansFor(c){
+  for(const cl of DB.clients){ const pr=(cl.projects||[]).find(p=>p.contractId===c.id); if(pr && pr.signedContractScans){ pr.signedContractScans.forEach(f=>{ FILE_REGISTRY[f.id]=f; }); return pr.signedContractScans; } }
+  return [];
+}
 function contractDetailView(c){
   const p = perms();
   const constructionSettings = legalSlotSettings('construction');
@@ -6016,10 +6044,12 @@ function contractDetailView(c){
       ${isPdfMode ? `<div class="section-label">Contract Document</div>${uploadedDocPreviewHTML(constructionSettings, 420)}` : ''}
     </div>
     ${c.status==='signed' ? `
-      ${!isPdfMode ? `<div class="section-label">Full Agreement (Sections 1–25) — As Signed</div>${contractPagesReadHTML(c, false)}` : ''}
-      <div class="section-label">Signature — Captured</div>
+      ${(!isPdfMode && !c.signedOnPaper) ? `<div class="section-label">Full Agreement (Sections 1–25) — As Signed</div>${contractPagesReadHTML(c, false)}` : ''}
+      ${c.signedOnPaper ? `<div class="section-label">Signed on Paper — Photos of the Signed Contract</div>
+        <div class="photo-grid">${(paperScansFor(c)).map(f=>planCardHTML(f,false)).join('') || '<span class="subtle">No photos found.</span>'}</div>
+        <div class="subtle">Signed on paper ${fmtDateTime(c.signedAt)} — client and project auto-added to Clients. The photos are also under the project's documents.</div>` : `<div class="section-label">Signature — Captured</div>
       <img src="${c.signature}" style="border:1px solid var(--line);border-radius:6px;background:#fff;height:100px;">
-      <div class="subtle">Signed ${fmtDateTime(c.signedAt)} — client and project auto-added to Clients.</div>
+      <div class="subtle">Signed ${fmtDateTime(c.signedAt)} — client and project auto-added to Clients.</div>`}
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
         <button class="btn ghost small" data-action="print-contract" data-id="${c.id}">Print Now</button>
         ${p.canEmailClients ? `<button class="btn small" data-action="email-contract" data-id="${c.id}">Send Email</button>` : ''}
@@ -6029,6 +6059,9 @@ function contractDetailView(c){
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
         <button class="btn ghost small" data-action="send-remote-contract" data-id="${c.id}">Send for Remote Signature</button>
       </div>`}
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin:0 0 10px;flex-wrap:wrap;">
+        <button class="btn small" data-action="print-contract-paper" data-id="${c.id}">🖨 Print for Paper Signing</button>
+      </div>
       ${isPdfMode ? `
         <div class="field chk" style="margin-top:10px;"><input type="checkbox" id="pdf-read-confirm"> I have read the entire document above and agree to its terms</div>
       ` : `
@@ -6041,6 +6074,15 @@ function contractDetailView(c){
         <button class="btn ghost small" data-action="clear-sig" data-canvas="sig-contract">Clear</button>
         <button class="btn" data-action="sign-contract" data-id="${c.id}">Capture Signature & Lock</button>
       </div>
+      <div class="section-label" style="margin-top:26px;">Signed on paper instead?</div>
+      <div class="subtle" style="margin-bottom:8px;">1) Tap <b>Print for Paper Signing</b> above. 2) Client signs and initials each page. 3) Take a photo of every page here. 4) Tap <b>Mark as Signed on Paper</b>. The photos are saved with the project as the signed copy.</div>
+      <div id="paper-photos" class="photo-grid"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;align-items:center;">
+        <button type="button" class="btn ghost small" id="paper-cam-btn">📷 Take Photo</button><input type="file" id="paper-cam-in" accept="image/*" capture="environment" style="display:none;">
+        <button type="button" class="btn ghost small" id="paper-up-btn">⬆ Upload Photos</button><input type="file" id="paper-up-in" accept="image/*" multiple style="display:none;">
+        <span id="photo-status" class="subtle"></span>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:6px;"><button class="btn" data-action="sign-contract-paper" data-id="${c.id}">Mark as Signed on Paper</button></div>
     `}
   `;
 }
@@ -6114,6 +6156,7 @@ function projectCardHTML(c, pr, opts){
         ${pr.estimateId ? `<button class="btn ghost small" data-action="view-project-estimate" data-id="${pr.estimateId}">Estimate${(()=>{const es=DB.estimates.find(x=>x.id===pr.estimateId); return es&&es.signedAt?' ✓ Signed '+fmtDate(es.signedAt):'';})()}</button>` : ''}
         ${pr.contractId ? `<button class="btn ghost small" data-action="view-project-contract" data-id="${pr.contractId}">Contract${(()=>{const ct=DB.contracts.find(x=>x.id===pr.contractId); return ct&&ct.signedAt?' ✓ Signed '+fmtDate(ct.signedAt):'';})()}</button>` : ''}
       </div>` : ''}
+      ${(pr.signedContractScans||[]).length ? `<div class="section-label" style="margin-top:12px;">Signed Contract — Paper Copy (${pr.signedContractScans.length} photo${pr.signedContractScans.length===1?'':'s'})</div><div class="photo-grid">${pr.signedContractScans.map(f=>planCardHTML(f,false)).join('')}</div>` : ''}
       ${changeOrdersSectionHTML(c, pr, p)}
       ${p.stageToggle ? `<div class="stage-controls">
         <button class="btn ghost small" data-action="toggle-permit" data-cid="${c.id}" data-pid="${pr.id}">Permit: ${pr.permitStatus.replace('_',' ')} (click to advance)</button>
@@ -7180,6 +7223,27 @@ Office@gsbconstructions.com`);
     await autoCreateOrAttachClient(c);
     STATE.modal = {type:'contract-detail', data:c}; render();
   });
+  document.querySelectorAll('[data-action="print-contract-paper"]').forEach(el=>el.addEventListener('click', ()=>{
+    const c = DB.contracts.find(x=>x.id===el.dataset.id);
+    const cs = legalSlotSettings('construction');
+    if(cs.mode==='pdf' && cs.dataUrl){
+      if(cs.fileType==='word'){ downloadDataUrl(cs.dataUrl, cs.fileName); return; }
+      window.open(cs.dataUrl, '_blank'); return;
+    }
+    printDocument('Contract — '+c.clientName, contractPrintBody(c, true));
+  }));
+  bindClick('sign-contract-paper', async (el)=>{
+    const c = DB.contracts.find(x=>x.id===el.dataset.id);
+    const arr = (STATE.paperScans && STATE.paperScans.cid===c.id) ? STATE.paperScans.arr : [];
+    if(!arr.length){ alert('Please add at least one photo of the signed contract first (use Take Photo or Upload Photos).'); return; }
+    if(!confirm('Mark this contract as SIGNED ON PAPER using '+arr.length+' photo'+(arr.length===1?'':'s')+'? It will be locked and added to the client\'s project.')) return;
+    const scans = arr.map((p,i)=>({ id:p.id, kind:'contract', name:'Signed contract (paper) — photo '+(i+1), mime:'image/jpeg', dataUrl:p.dataUrl, dateAdded:todayStr(), addedBy: STATE.user ? STATE.user.first : '' }));
+    c.signature = ''; c.signedOnPaper = true; c.paperScanCount = scans.length; c.signedAt = nowISO(); c.status = 'signed';
+    await saveRecord('contracts', c);
+    await autoCreateOrAttachClient(c, scans);
+    STATE.paperScans = null;
+    STATE.modal = {type:'contract-detail', data:c}; render();
+  });
   document.querySelectorAll('[data-action="print-contract"]').forEach(el=>el.addEventListener('click', ()=>{
     const c = DB.contracts.find(x=>x.id===el.dataset.id);
     const constructionSettings = legalSlotSettings('construction');
@@ -7662,7 +7726,7 @@ async function publicAttachSignedEstimate(e){
     if(r.changed) await fbDb.collection(FS_PREFIX+'clients').doc(r.client.id).set(r.client);
   }catch(err){ console.error('publicAttachSignedEstimate failed', err); }
 }
-async function autoCreateOrAttachClient(contract){
+async function autoCreateOrAttachClient(contract, scans){
   const normPhone = (p)=> (p||'').replace(/\D/g,'');
   const normName = (n)=> (n||'').trim().toLowerCase();
   let client = DB.clients.find(c=> normName(c.name)===normName(contract.clientName) && normPhone(c.primaryPhone)===normPhone(contract.clientPhone));
@@ -7690,6 +7754,7 @@ async function autoCreateOrAttachClient(contract){
     DB.clients.push(client);
     pushNotification(`Contract signed — new client "${client.name}" auto-created with their first project.`);
   }
+  if(scans && scans.length){ const tp = estProject || client.projects.find(pr=>pr.contractId===contract.id) || project; tp.signedContractScans = scans; tp.contractId = contract.id; tp.contractSigned = true; }
   await saveRecord('clients', client);
 
   // everything's now reachable from the project — clear the worksheet, estimate, and contract out of their working lists
@@ -7750,6 +7815,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-l</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-m</div>
 </body>
 </html>
