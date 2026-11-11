@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.11-m';
+const APP_VERSION = 'v2026.11.11-n';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -1316,13 +1316,7 @@ function renderPublicSignBody(c){
         <div class="section-label">Payment Schedule</div>
         <table class="hist">
           <tr><td>Total Contract Price</td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
-          <tr><td>1. Deposit (10%)</td><td style="text-align:right;">${money(c.pricing.p1)}</td></tr>
-          <tr><td>2. First Progress (40%) — when work starts</td><td style="text-align:right;">${money(c.pricing.p2)}</td></tr>
-          <tr><td>3. Second Progress (15%) — demo done, rough-in ready for inspection</td><td style="text-align:right;">${money(c.pricing.p3)}</td></tr>
-          <tr><td>4. Third Progress (12%) — rough inspection passed, walls closed up</td><td style="text-align:right;">${money(c.pricing.p4)}</td></tr>
-          <tr><td>5. Fourth Progress (10%) — finish materials delivered, main finishes going in</td><td style="text-align:right;">${money(c.pricing.p5)}</td></tr>
-          <tr><td>6. Fifth Progress (8%) — finishes installed, trim and paint mostly done</td><td style="text-align:right;">${money(c.pricing.p6)}</td></tr>
-          <tr><td>7. Final Payment (5%) — final inspection passed, punch list complete</td><td style="text-align:right;">${money(c.pricing.p7)}</td></tr>
+        ${paymentRowsHTML(c.pricing, payLabelsFor(c))}
         </table>
         ${(()=>{ const cs = legalSlotSettings('construction'); return cs.mode==='pdf' ? `<div class="section-label">Contract Document</div>${uploadedDocPreviewHTML(cs, 380)}` : `<div class="section-label">Full Agreement</div><div class="legal-block" style="max-height:none;overflow:visible;">${getContractPages().map(pg=>pg.html).join('<hr style="border:none;border-top:1px dashed var(--line);margin:10px 0;">')}</div>`; })()}
         ${alreadySigned ? `
@@ -4106,6 +4100,7 @@ function render(){
   if(STATE.view==='onsite' && STATE.subtab.onsite==='new'){ attachPhotoCapture(); attachBeforePhotoCapture(); renderNewFloorPlanPreview(); renderNewPlanFiles(); }
   if(STATE.modal && STATE.modal.sigCanvasId) initSignaturePad(STATE.modal.sigCanvasId);
   if(STATE.modal && STATE.modal.type==='contract-detail' && document.getElementById('paper-cam-in')) bindPaperScan(STATE.modal.data);
+  if(STATE.modal && (STATE.modal.type==='contract-form' || STATE.modal.type==='contract-detail')) bindPayTemplates();
   if(STATE.modal && STATE.modal.type==='permit-form') attachPermitPhotoCapture();
   if(STATE.modal && STATE.modal.type==='project-photo-form') attachGenericPhotoCapture();
   if((STATE.modal && STATE.modal.type==='new-material-form') || STATE.view==='materials') attachMaterialPhotoCapture();
@@ -4920,6 +4915,42 @@ function estimatePricingTableHTML(e){
 function totalEstimate(e){ const p=e.pricing; return (parseFloat(p.permit)||0)+(parseFloat(p.constr)||0); }
 
 /* Payment schedule: 10 / 40 / 15 / 12 / 10 / 8 / 5 (last payment is the remainder so it always adds up exactly) */
+/* ---- Payment schedule wording (percentages fixed; WHEN each payment is due is editable per job) ---- */
+const PAY_PCT = {p1:10,p2:40,p3:15,p4:12,p5:10,p6:8,p7:5};
+const PAY_NAMES = {p1:'Deposit',p2:'First Progress',p3:'Second Progress',p4:'Third Progress',p5:'Fourth Progress',p6:'Fifth Progress',p7:'Final Payment'};
+const PAY_TEMPLATES = {
+  standard:{ label:'Remodel with demolition',
+    p1:'due at signing', p2:'when work starts', p3:'demo done, rough-in ready for inspection', p4:'rough inspection passed, walls closed up', p5:'finish materials delivered, main finishes going in', p6:'finishes installed, trim and paint mostly done', p7:'final inspection passed, punch list complete' },
+  nodemo:{ label:'No demolition (install / finish work)',
+    p1:'due at signing', p2:'when work starts', p3:'framing and door openings complete, ready for inspection', p4:'inspection passed, drywall and panels installed', p5:'doors and trim installed, finishing started', p6:'paint and finishes mostly done', p7:'final inspection passed, punch list complete' }
+};
+function payLabelsFor(c){
+  if(c && c.payLabels) return c.payLabels;
+  if(c && c.status==='signed') return PAY_TEMPLATES.standard;       // contracts signed before this feature keep what they signed
+  return (c && c.demo && String(c.demo).trim()) ? PAY_TEMPLATES.standard : PAY_TEMPLATES.nodemo;
+}
+function paymentRowsHTML(pay, labels){
+  labels = labels || PAY_TEMPLATES.standard;
+  return ['p1','p2','p3','p4','p5','p6','p7'].map((k,i)=>{
+    const t = (labels[k]!=null ? String(labels[k]).trim() : '');
+    return `<tr><td>${i+1}. ${PAY_NAMES[k]} (${PAY_PCT[k]}%)${t?' — '+esc(t):''}</td><td style="text-align:right;">${money(pay[k])}</td></tr>`;
+  }).join('');
+}
+function payLabelsEditorHTML(labels, forDetail){
+  return `<div class="field" style="margin-bottom:8px;"><label>Start from a template</label>
+      <select data-pay-template><option value="">— choose to fill in the boxes below —</option>${Object.keys(PAY_TEMPLATES).map(k=>`<option value="${k}">${esc(PAY_TEMPLATES[k].label)}</option>`).join('')}</select></div>
+    ${['p1','p2','p3','p4','p5','p6','p7'].map((k,i)=>`<div class="field" style="margin-bottom:6px;"><label>${i+1}. ${PAY_NAMES[k]} (${PAY_PCT[k]}%) — when is it due?</label><input type="text" data-pay-label="${k}" value="${esc(labels[k]||'')}" placeholder="e.g. when work starts"></div>`).join('')}`;
+}
+function readPayLabels(root){
+  const o = {}; (root||document).querySelectorAll('[data-pay-label]').forEach(i=>{ o[i.dataset.payLabel] = i.value.trim(); }); return o;
+}
+function bindPayTemplates(){
+  document.querySelectorAll('[data-pay-template]').forEach(sel=>sel.addEventListener('change', ()=>{
+    const t = PAY_TEMPLATES[sel.value]; if(!t) return;
+    const root = sel.closest('[data-pay-root]') || document;
+    root.querySelectorAll('[data-pay-label]').forEach(i=>{ i.value = t[i.dataset.payLabel] || ''; });
+  }));
+}
 function paymentSchedule(total){
   total = parseFloat(total)||0;
   const p1=Math.round(total*0.10), p2=Math.round(total*0.40), p3=Math.round(total*0.15), p4=Math.round(total*0.12), p5=Math.round(total*0.10), p6=Math.round(total*0.08);
@@ -4962,30 +4993,29 @@ function paperSignatureBlockHTML(c){
 }
 function contractPrintBody(c, paper){
   const initials = c.pageInitials || {};
+  const lbl = (t)=>`<div class="lbl" style="margin-top:2px;">${t}</div>`;
+  const cell = (t,v)=>`<div>${lbl(t)}<div style="font-size:13px;">${esc(v||'—')}</div></div>`;
+  const cover = `
+    <div class="contract-page">
+      <h2>GSB GENERAL CONSTRUCTION INC.</h2>
+      <div class="sub">13311 SW 9th Pl, Davie, FL 33325 &nbsp;|&nbsp; 954-605-4746 &nbsp;|&nbsp; Office@gsbconstructions.com &nbsp;|&nbsp; Lic #CGC1539336</div>
+      <h3 style="text-align:center;letter-spacing:1px;">CONSTRUCTION CONTRACT AGREEMENT</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 28px;margin:14px 0;">
+        ${c.jobName?cell('Job Name',c.jobName):''}${cell('Owner Name',c.clientName)}${cell('Owner Phone',c.clientPhone)}${cell('Project Address',c.address)}${cell('Contract Date',fmtDate(c.date))}
+      </div>
+      <h4 style="margin:16px 0 4px;text-transform:uppercase;color:#7A6A45;font-size:12px;border-bottom:2px solid #ddd;padding-bottom:3px;">Scope Summary</h4>
+      <div style="background:#EEE9DC;border:1px solid #ddd;border-radius:6px;padding:10px 14px;white-space:pre-wrap;font-size:13px;line-height:1.6;">${esc(c.constr||'Nothing noted')}</div>
+      <h4 style="margin:18px 0 4px;text-transform:uppercase;color:#7A6A45;font-size:12px;border-bottom:2px solid #ddd;padding-bottom:3px;">Payment Schedule</h4>
+      <table>
+        <tr><td><b>Total Contract Price</b></td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
+        ${paymentRowsHTML(c.pricing, payLabelsFor(c))}
+      </table>
+      ${(paper && !c.signedOnPaper && !c.signature) ? `<div class="page-initials"><span>Owner has read and initialed this page:</span><b>____________</b></div>` : ''}
+      <div class="page-footer">GSB General Construction Inc &nbsp;•&nbsp; License #CGC1539336 &nbsp;•&nbsp; Contract Summary</div>
+    </div>`;
   const pagesHtml = getContractPages().map(pg => `
     <div class="contract-page">
-      ${pg.page===1 ? `
-        <h2>GSB GENERAL CONSTRUCTION INC.</h2>
-        <div class="sub">13311 SW 9th Pl, Davie, FL 33325 &nbsp;|&nbsp; 954-605-4746 &nbsp;|&nbsp; Office@gsbconstructions.com &nbsp;|&nbsp; Lic #CGC1539336</div>
-        <h3 style="text-align:center;">CONSTRUCTION CONTRACT AGREEMENT</h3>
-        <p><span class="lbl">Owner:</span> ${esc(c.clientName)} &nbsp; <span class="lbl">Phone:</span> ${esc(c.clientPhone)}<br>
-        <span class="lbl">Project Address:</span> ${esc(c.address)} &nbsp; <span class="lbl">Date:</span> ${fmtDate(c.date)}</p>
-      ` : ''}
       ${pg.html}
-      ${pg.page===2 ? `
-        <h4>Scope of Work (Project-Specific)</h4><p>${esc(c.constr||'')}</p>
-        <h4>Payment Schedule</h4>
-        <table>
-          <tr><td><b>Total Contract Price</b></td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
-          <tr><td>1. Deposit (10%)</td><td style="text-align:right;">${money(c.pricing.p1)}</td></tr>
-          <tr><td>2. First Progress (40%) — when work starts</td><td style="text-align:right;">${money(c.pricing.p2)}</td></tr>
-          <tr><td>3. Second Progress (15%) — demo done, rough-in ready for inspection</td><td style="text-align:right;">${money(c.pricing.p3)}</td></tr>
-          <tr><td>4. Third Progress (12%) — rough inspection passed, walls closed up</td><td style="text-align:right;">${money(c.pricing.p4)}</td></tr>
-          <tr><td>5. Fourth Progress (10%) — finish materials delivered, main finishes going in</td><td style="text-align:right;">${money(c.pricing.p5)}</td></tr>
-          <tr><td>6. Fifth Progress (8%) — finishes installed, trim and paint mostly done</td><td style="text-align:right;">${money(c.pricing.p6)}</td></tr>
-          <tr><td>7. Final Payment (5%) — final inspection passed, punch list complete</td><td style="text-align:right;">${money(c.pricing.p7)}</td></tr>
-        </table>
-      ` : ''}
       ${pg.page===5 ? `
         <h4>Signatures</h4>
         ${c.signature ? `<img class="sig" src="${c.signature}"><div class="sub" style="text-align:left;">Contractor/Owner Signed ${fmtDateTime(c.signedAt)}</div>`
@@ -4995,7 +5025,7 @@ function contractPrintBody(c, paper){
       <div class="page-footer">GSB General Construction Inc &nbsp;•&nbsp; License #CGC1539336 &nbsp;•&nbsp; Page ${pg.page} of 5</div>
     </div>
   `).join('');
-  return pagesHtml;
+  return cover + pagesHtml;
 }
 
 function estimateDetailView(e){
@@ -5399,13 +5429,7 @@ function customerDocsHTML(f, pb){
       <div class="section-label">Payment Schedule</div>
       <table class="hist">
         <tr><td>Total Contract Price</td><td style="text-align:right;"><b>${money(pay.total)}</b></td></tr>
-        <tr><td>1. Deposit (10%)</td><td style="text-align:right;">${money(pay.p1)}</td></tr>
-        <tr><td>2. First Progress (40%) — when work starts</td><td style="text-align:right;">${money(pay.p2)}</td></tr>
-        <tr><td>3. Second Progress (15%) — demo done, rough-in ready for inspection</td><td style="text-align:right;">${money(pay.p3)}</td></tr>
-        <tr><td>4. Third Progress (12%) — rough inspection passed, walls closed up</td><td style="text-align:right;">${money(pay.p4)}</td></tr>
-        <tr><td>5. Fourth Progress (10%) — finish materials delivered, main finishes going in</td><td style="text-align:right;">${money(pay.p5)}</td></tr>
-        <tr><td>6. Fifth Progress (8%) — finishes installed, trim and paint mostly done</td><td style="text-align:right;">${money(pay.p6)}</td></tr>
-        <tr><td>7. Final Payment (5%) — final inspection passed, punch list complete</td><td style="text-align:right;">${money(pay.p7)}</td></tr>
+        ${paymentRowsHTML(pay, payLabelsFor(e))}
       </table>
       <details style="margin-top:14px;"><summary style="cursor:pointer;font-weight:600;">Show the full contract pages (1–5)</summary><div style="margin-top:10px;">${contractPagesReadHTML(c, false)}</div></details>
     </div>`;
@@ -5973,14 +5997,16 @@ function contractForm(d){
     <div class="section-label">Contract Price & Payment Schedule <span class="tag category">Office locks this</span></div>
     <div class="field"><label>Total Contract Price ($)</label><input id="c-total" type="number" value="${d.pricing.total}"></div>
     <div class="form-grid">
-      <div class="field"><label>1. Deposit (10%) — Due at signing</label><input id="c-p1" type="number" value="${d.pricing.p1}"></div>
-      <div class="field"><label>2. First Progress (40%) — Due when work starts</label><input id="c-p2" type="number" value="${d.pricing.p2}"></div>
-      <div class="field"><label>3. Second Progress (15%) — Demo done, rough-in ready for inspection</label><input id="c-p3" type="number" value="${d.pricing.p3}"></div>
-      <div class="field"><label>4. Third Progress (12%) — Rough inspection passed, walls closed up</label><input id="c-p4" type="number" value="${d.pricing.p4}"></div>
-      <div class="field"><label>5. Fourth Progress (10%) — Finish materials delivered, main finishes going in</label><input id="c-p5" type="number" value="${d.pricing.p5}"></div>
-      <div class="field"><label>6. Fifth Progress (8%) — Finishes installed, trim and paint mostly done</label><input id="c-p6" type="number" value="${d.pricing.p6}"></div>
-      <div class="field"><label>7. Final Payment (5%) — Final inspection passed, punch list complete</label><input id="c-p7" type="number" value="${d.pricing.p7}"></div>
+      <div class="field"><label>1. Deposit (10%) ($)</label><input id="c-p1" type="number" value="${d.pricing.p1}"></div>
+      <div class="field"><label>2. First Progress (40%) ($)</label><input id="c-p2" type="number" value="${d.pricing.p2}"></div>
+      <div class="field"><label>3. Second Progress (15%) ($)</label><input id="c-p3" type="number" value="${d.pricing.p3}"></div>
+      <div class="field"><label>4. Third Progress (12%) ($)</label><input id="c-p4" type="number" value="${d.pricing.p4}"></div>
+      <div class="field"><label>5. Fourth Progress (10%) ($)</label><input id="c-p5" type="number" value="${d.pricing.p5}"></div>
+      <div class="field"><label>6. Fifth Progress (8%) ($)</label><input id="c-p6" type="number" value="${d.pricing.p6}"></div>
+      <div class="field"><label>7. Final Payment (5%) ($)</label><input id="c-p7" type="number" value="${d.pricing.p7}"></div>
     </div>
+    <div class="section-label">When each payment is due <span class="tag category">Match it to this job</span></div>
+    <div data-pay-root="1">${payLabelsEditorHTML(payLabelsFor({demo:d.demo}))}</div>
     <div class="section-label">Standard Terms (Full Agreement — Sections 1–25)</div>
     ${legalSlotSettings('construction').mode==='pdf' ?
       uploadedDocPreviewHTML(legalSlotSettings('construction'), 340) :
@@ -6033,13 +6059,7 @@ function contractDetailView(c){
       <div class="section-label">Payment Schedule</div>
       <table class="hist">
         <tr><td>Total Contract Price</td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
-        <tr><td>1. Deposit (10%)</td><td style="text-align:right;">${money(c.pricing.p1)}</td></tr>
-        <tr><td>2. First Progress (40%) — when work starts</td><td style="text-align:right;">${money(c.pricing.p2)}</td></tr>
-        <tr><td>3. Second Progress (15%) — demo done, rough-in ready for inspection</td><td style="text-align:right;">${money(c.pricing.p3)}</td></tr>
-        <tr><td>4. Third Progress (12%) — rough inspection passed, walls closed up</td><td style="text-align:right;">${money(c.pricing.p4)}</td></tr>
-        <tr><td>5. Fourth Progress (10%) — finish materials delivered, main finishes going in</td><td style="text-align:right;">${money(c.pricing.p5)}</td></tr>
-        <tr><td>6. Fifth Progress (8%) — finishes installed, trim and paint mostly done</td><td style="text-align:right;">${money(c.pricing.p6)}</td></tr>
-        <tr><td>7. Final Payment (5%) — final inspection passed, punch list complete</td><td style="text-align:right;">${money(c.pricing.p7)}</td></tr>
+        ${paymentRowsHTML(c.pricing, payLabelsFor(c))}
       </table>
       ${isPdfMode ? `<div class="section-label">Contract Document</div>${uploadedDocPreviewHTML(constructionSettings, 420)}` : ''}
     </div>
@@ -6059,6 +6079,11 @@ function contractDetailView(c){
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
         <button class="btn ghost small" data-action="send-remote-contract" data-id="${c.id}">Send for Remote Signature</button>
       </div>`}
+      <details style="margin:0 0 10px;border:1px solid var(--line);border-radius:6px;padding:8px 12px;background:#fff;" data-pay-root="1">
+        <summary style="cursor:pointer;font-weight:600;">✏️ Change when each payment is due (to match this job)</summary>
+        <div style="margin-top:10px;">${payLabelsEditorHTML(payLabelsFor(c))}
+          <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="btn small" data-action="save-pay-labels" data-id="${c.id}">Save Payment Timing</button></div></div>
+      </details>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin:0 0 10px;flex-wrap:wrap;">
         <button class="btn small" data-action="print-contract-paper" data-id="${c.id}">🖨 Print for Paper Signing</button>
       </div>
@@ -6931,7 +6956,7 @@ Office@gsbconstructions.com`);
     const contract = { id:uid(), estimateId, onsiteId:e.onsiteId, dateCreated:nowISO(), date:todayStr(), status:'locked',
       jobName:e.jobName||'', clientName:e.clientName, clientPhone:e.clientPhone, clientEmail:e.clientEmail, address:e.address, demo:e.demo, constr:e.constr, ep:e.ep, owner:e.owner,
       pricing:{ total:val('c-total')||0, p1:val('c-p1')||0, p2:val('c-p2')||0, p3:val('c-p3')||0, p4:val('c-p4')||0, p5:val('c-p5')||0, p6:val('c-p6')||0, p7:val('c-p7')||0 },
-      photoReleaseOptOut: document.getElementById('c-photorelease').checked, signature:null, signedAt:null,
+      payLabels: readPayLabels(document), photoReleaseOptOut: document.getElementById('c-photorelease').checked, signature:null, signedAt:null,
       pageInitials:{}, sentRemote:false, sentRemoteAt:null };
     DB.contracts.push(contract); await saveRecord('contracts', contract); STATE.modal=null; render();
   });
@@ -7232,6 +7257,13 @@ Office@gsbconstructions.com`);
     }
     printDocument('Contract — '+c.clientName, contractPrintBody(c, true));
   }));
+  bindClick('save-pay-labels', async (el)=>{
+    const c = DB.contracts.find(x=>x.id===el.dataset.id); if(!c || c.status==='signed') return;
+    c.payLabels = readPayLabels(el.closest('[data-pay-root]'));
+    await saveRecord('contracts', c);
+    STATE.modal = {type:'contract-detail', data:c, sigCanvasId:'sig-contract'}; render();
+    showToast('✓ Payment timing saved');
+  });
   bindClick('sign-contract-paper', async (el)=>{
     const c = DB.contracts.find(x=>x.id===el.dataset.id);
     const arr = (STATE.paperScans && STATE.paperScans.cid===c.id) ? STATE.paperScans.arr : [];
@@ -7815,6 +7847,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-m</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-n</div>
 </body>
 </html>
