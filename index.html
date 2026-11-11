@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.10-m';
+const APP_VERSION = 'v2026.11.11-a';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -1314,12 +1314,12 @@ function renderPublicSignBody(c){
         <table class="hist">
           <tr><td>Total Contract Price</td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
           <tr><td>1. Deposit (10%)</td><td style="text-align:right;">${money(c.pricing.p1)}</td></tr>
-          <tr><td>2. First Progress (40%)</td><td style="text-align:right;">${money(c.pricing.p2)}</td></tr>
-          <tr><td>3. Second Progress</td><td style="text-align:right;">${money(c.pricing.p3)}</td></tr>
-          <tr><td>4. Third Progress</td><td style="text-align:right;">${money(c.pricing.p4)}</td></tr>
-          <tr><td>5. Fourth Progress</td><td style="text-align:right;">${money(c.pricing.p5)}</td></tr>
-          <tr><td>6. Fifth Progress</td><td style="text-align:right;">${money(c.pricing.p6)}</td></tr>
-          <tr><td>7. Final Payment</td><td style="text-align:right;">${money(c.pricing.p7)}</td></tr>
+          <tr><td>2. First Progress (40%) — when work starts</td><td style="text-align:right;">${money(c.pricing.p2)}</td></tr>
+          <tr><td>3. Second Progress (15%) — demo done, rough-in ready for inspection</td><td style="text-align:right;">${money(c.pricing.p3)}</td></tr>
+          <tr><td>4. Third Progress (12%) — rough inspection passed, walls closed up</td><td style="text-align:right;">${money(c.pricing.p4)}</td></tr>
+          <tr><td>5. Fourth Progress (10%) — finish materials delivered, main finishes going in</td><td style="text-align:right;">${money(c.pricing.p5)}</td></tr>
+          <tr><td>6. Fifth Progress (8%) — finishes installed, trim and paint mostly done</td><td style="text-align:right;">${money(c.pricing.p6)}</td></tr>
+          <tr><td>7. Final Payment (5%) — final inspection passed, punch list complete</td><td style="text-align:right;">${money(c.pricing.p7)}</td></tr>
         </table>
         ${(()=>{ const cs = legalSlotSettings('construction'); return cs.mode==='pdf' ? `<div class="section-label">Contract Document</div>${uploadedDocPreviewHTML(cs, 380)}` : `<div class="section-label">Full Agreement</div><div class="legal-block" style="max-height:none;overflow:visible;">${getContractPages().map(pg=>pg.html).join('<hr style="border:none;border-top:1px dashed var(--line);margin:10px 0;">')}</div>`; })()}
         ${alreadySigned ? `
@@ -4904,6 +4904,12 @@ function estimatePricingTableHTML(e){
       <tr><td><b>Total Estimated Price</b></td><td style="text-align:right;"><b>${money(totalEstimate(e))}</b></td></tr></table>
       ${fin.length?`<div class="subtle" style="margin-top:8px;font-style:italic;">${FINISHES_NOTE}</div>`:(lf.length?`<div class="subtle" style="margin-top:8px;font-style:italic;">${LABOR_FLAT_NOTE}</div>`:'')}`;
 }
+/* Payment schedule: 10 / 40 / 15 / 12 / 10 / 8 / 5 (last payment is the remainder so it always adds up exactly) */
+function paymentSchedule(total){
+  total = parseFloat(total)||0;
+  const p1=Math.round(total*0.10), p2=Math.round(total*0.40), p3=Math.round(total*0.15), p4=Math.round(total*0.12), p5=Math.round(total*0.10), p6=Math.round(total*0.08);
+  return { total, p1, p2, p3, p4, p5, p6, p7: total-(p1+p2+p3+p4+p5+p6) };
+}
 function totalEstimate(e){ const p=e.pricing; return (parseFloat(p.permit)||0)+(parseFloat(p.constr)||0); }
 
 /* ---- Print / Email ---- */
@@ -4947,12 +4953,12 @@ function contractPrintBody(c){
         <table>
           <tr><td><b>Total Contract Price</b></td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
           <tr><td>1. Deposit (10%)</td><td style="text-align:right;">${money(c.pricing.p1)}</td></tr>
-          <tr><td>2. First Progress (40%)</td><td style="text-align:right;">${money(c.pricing.p2)}</td></tr>
-          <tr><td>3. Second Progress</td><td style="text-align:right;">${money(c.pricing.p3)}</td></tr>
-          <tr><td>4. Third Progress</td><td style="text-align:right;">${money(c.pricing.p4)}</td></tr>
-          <tr><td>5. Fourth Progress</td><td style="text-align:right;">${money(c.pricing.p5)}</td></tr>
-          <tr><td>6. Fifth Progress</td><td style="text-align:right;">${money(c.pricing.p6)}</td></tr>
-          <tr><td>7. Final Payment</td><td style="text-align:right;">${money(c.pricing.p7)}</td></tr>
+          <tr><td>2. First Progress (40%) — when work starts</td><td style="text-align:right;">${money(c.pricing.p2)}</td></tr>
+          <tr><td>3. Second Progress (15%) — demo done, rough-in ready for inspection</td><td style="text-align:right;">${money(c.pricing.p3)}</td></tr>
+          <tr><td>4. Third Progress (12%) — rough inspection passed, walls closed up</td><td style="text-align:right;">${money(c.pricing.p4)}</td></tr>
+          <tr><td>5. Fourth Progress (10%) — finish materials delivered, main finishes going in</td><td style="text-align:right;">${money(c.pricing.p5)}</td></tr>
+          <tr><td>6. Fifth Progress (8%) — finishes installed, trim and paint mostly done</td><td style="text-align:right;">${money(c.pricing.p6)}</td></tr>
+          <tr><td>7. Final Payment (5%) — final inspection passed, punch list complete</td><td style="text-align:right;">${money(c.pricing.p7)}</td></tr>
         </table>
       ` : ''}
       ${pg.page===5 ? `
@@ -5339,7 +5345,7 @@ function customerViewHTML(f, pb){
   const e = { jobName:(f.jobName||(f.clientName+' — Project')), date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:em,
     demo:f.demo, constr:f.constr, ep:f.ep, pricing:pv.pricing, permitDetail:pv.permitDetail, finishes:pv.finishes, laborFlats:pv.laborFlats };
   const total = totalEstimate(e);
-  const pay = { total, p1:Math.round(total*0.1), p2:Math.round(total*0.4), p3:Math.round(total*0.15), p4:Math.round(total*0.15), p5:Math.round(total*0.1), p6:Math.round(total*0.05), p7:Math.round(total*0.05) };
+  const pay = paymentSchedule(total);
   const c = { clientName:e.clientName, clientPhone:e.clientPhone, address:e.address, jobName:e.jobName, date:todayStr(), constr:e.constr, pricing:pay, pageInitials:{} };
   const hdr = `<div class="mono" style="font-size:11px;color:var(--muted);">13311 SW 9th Pl, Davie, FL 33325 | 954-605-4746 | Office@gsbconstructions.com</div>
       <div style="font-size:10.5px;color:var(--muted);margin-bottom:12px;">Florida License #CGC1539336</div>`;
@@ -5364,12 +5370,12 @@ function customerViewHTML(f, pb){
       <table class="hist">
         <tr><td>Total Contract Price</td><td style="text-align:right;"><b>${money(pay.total)}</b></td></tr>
         <tr><td>1. Deposit (10%)</td><td style="text-align:right;">${money(pay.p1)}</td></tr>
-        <tr><td>2. First Progress (40%)</td><td style="text-align:right;">${money(pay.p2)}</td></tr>
-        <tr><td>3. Second Progress</td><td style="text-align:right;">${money(pay.p3)}</td></tr>
-        <tr><td>4. Third Progress</td><td style="text-align:right;">${money(pay.p4)}</td></tr>
-        <tr><td>5. Fourth Progress</td><td style="text-align:right;">${money(pay.p5)}</td></tr>
-        <tr><td>6. Fifth Progress</td><td style="text-align:right;">${money(pay.p6)}</td></tr>
-        <tr><td>7. Final Payment</td><td style="text-align:right;">${money(pay.p7)}</td></tr>
+        <tr><td>2. First Progress (40%) — when work starts</td><td style="text-align:right;">${money(pay.p2)}</td></tr>
+        <tr><td>3. Second Progress (15%) — demo done, rough-in ready for inspection</td><td style="text-align:right;">${money(pay.p3)}</td></tr>
+        <tr><td>4. Third Progress (12%) — rough inspection passed, walls closed up</td><td style="text-align:right;">${money(pay.p4)}</td></tr>
+        <tr><td>5. Fourth Progress (10%) — finish materials delivered, main finishes going in</td><td style="text-align:right;">${money(pay.p5)}</td></tr>
+        <tr><td>6. Fifth Progress (8%) — finishes installed, trim and paint mostly done</td><td style="text-align:right;">${money(pay.p6)}</td></tr>
+        <tr><td>7. Final Payment (5%) — final inspection passed, punch list complete</td><td style="text-align:right;">${money(pay.p7)}</td></tr>
       </table>
       <details style="margin-top:14px;"><summary style="cursor:pointer;font-weight:600;">Show the full contract pages (1–5)</summary><div style="margin-top:10px;">${contractPagesReadHTML(c, false)}</div></details>
     </div>
@@ -5878,12 +5884,12 @@ function contractForm(d){
     <div class="field"><label>Total Contract Price ($)</label><input id="c-total" type="number" value="${d.pricing.total}"></div>
     <div class="form-grid">
       <div class="field"><label>1. Deposit (10%) — Due at signing</label><input id="c-p1" type="number" value="${d.pricing.p1}"></div>
-      <div class="field"><label>2. First Progress (40%) — Due at start</label><input id="c-p2" type="number" value="${d.pricing.p2}"></div>
-      <div class="field"><label>3. Second Progress — After rough/framing</label><input id="c-p3" type="number" value="${d.pricing.p3}"></div>
-      <div class="field"><label>4. Third Progress — After doors/molding</label><input id="c-p4" type="number" value="${d.pricing.p4}"></div>
-      <div class="field"><label>5. Fourth Progress — After painting</label><input id="c-p5" type="number" value="${d.pricing.p5}"></div>
-      <div class="field"><label>6. Fifth Progress — After cabinets</label><input id="c-p6" type="number" value="${d.pricing.p6}"></div>
-      <div class="field"><label>7. Final Payment — Upon completion</label><input id="c-p7" type="number" value="${d.pricing.p7}"></div>
+      <div class="field"><label>2. First Progress (40%) — Due when work starts</label><input id="c-p2" type="number" value="${d.pricing.p2}"></div>
+      <div class="field"><label>3. Second Progress (15%) — Demo done, rough-in ready for inspection</label><input id="c-p3" type="number" value="${d.pricing.p3}"></div>
+      <div class="field"><label>4. Third Progress (12%) — Rough inspection passed, walls closed up</label><input id="c-p4" type="number" value="${d.pricing.p4}"></div>
+      <div class="field"><label>5. Fourth Progress (10%) — Finish materials delivered, main finishes going in</label><input id="c-p5" type="number" value="${d.pricing.p5}"></div>
+      <div class="field"><label>6. Fifth Progress (8%) — Finishes installed, trim and paint mostly done</label><input id="c-p6" type="number" value="${d.pricing.p6}"></div>
+      <div class="field"><label>7. Final Payment (5%) — Final inspection passed, punch list complete</label><input id="c-p7" type="number" value="${d.pricing.p7}"></div>
     </div>
     <div class="section-label">Standard Terms (Full Agreement — Sections 1–25)</div>
     ${legalSlotSettings('construction').mode==='pdf' ?
@@ -5924,12 +5930,12 @@ function contractDetailView(c){
       <table class="hist">
         <tr><td>Total Contract Price</td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
         <tr><td>1. Deposit (10%)</td><td style="text-align:right;">${money(c.pricing.p1)}</td></tr>
-        <tr><td>2. First Progress (40%)</td><td style="text-align:right;">${money(c.pricing.p2)}</td></tr>
-        <tr><td>3. Second Progress</td><td style="text-align:right;">${money(c.pricing.p3)}</td></tr>
-        <tr><td>4. Third Progress</td><td style="text-align:right;">${money(c.pricing.p4)}</td></tr>
-        <tr><td>5. Fourth Progress</td><td style="text-align:right;">${money(c.pricing.p5)}</td></tr>
-        <tr><td>6. Fifth Progress</td><td style="text-align:right;">${money(c.pricing.p6)}</td></tr>
-        <tr><td>7. Final Payment</td><td style="text-align:right;">${money(c.pricing.p7)}</td></tr>
+        <tr><td>2. First Progress (40%) — when work starts</td><td style="text-align:right;">${money(c.pricing.p2)}</td></tr>
+        <tr><td>3. Second Progress (15%) — demo done, rough-in ready for inspection</td><td style="text-align:right;">${money(c.pricing.p3)}</td></tr>
+        <tr><td>4. Third Progress (12%) — rough inspection passed, walls closed up</td><td style="text-align:right;">${money(c.pricing.p4)}</td></tr>
+        <tr><td>5. Fourth Progress (10%) — finish materials delivered, main finishes going in</td><td style="text-align:right;">${money(c.pricing.p5)}</td></tr>
+        <tr><td>6. Fifth Progress (8%) — finishes installed, trim and paint mostly done</td><td style="text-align:right;">${money(c.pricing.p6)}</td></tr>
+        <tr><td>7. Final Payment (5%) — final inspection passed, punch list complete</td><td style="text-align:right;">${money(c.pricing.p7)}</td></tr>
       </table>
       ${isPdfMode ? `<div class="section-label">Contract Document</div>${uploadedDocPreviewHTML(constructionSettings, 420)}` : ''}
     </div>
@@ -6797,7 +6803,7 @@ Office@gsbconstructions.com`);
     const e = DB.estimates.find(x=>x.id===el.dataset.id);
     const total = totalEstimate(e);
     STATE.modal = {type:'contract-form', data:{ estimateId:e.id, jobName:e.jobName||'', clientName:e.clientName, clientPhone:e.clientPhone, clientEmail:e.clientEmail, address:e.address,
-      demo:e.demo, constr:e.constr, ep:e.ep, pricing:{total, p1:Math.round(total*0.1), p2:Math.round(total*0.4), p3:Math.round(total*0.15), p4:Math.round(total*0.15), p5:Math.round(total*0.1), p6:Math.round(total*0.05), p7:Math.round(total*0.05)} }};
+      demo:e.demo, constr:e.constr, ep:e.ep, pricing:paymentSchedule(total) }};
     render();
   }));
   bindClick('save-contract', async (el)=>{
@@ -7663,6 +7669,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.10-m</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-a</div>
 </body>
 </html>
