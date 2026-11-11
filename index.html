@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.11-d';
+const APP_VERSION = 'v2026.11.11-l';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -540,7 +540,7 @@ The parties will attempt good-faith negotiation before pursuing formal action. T
 ## 11. Entire Agreement
 
 This Agreement, together with any Orders issued under it, constitutes the entire agreement between the parties regarding its subject matter, and supersedes any prior discussions or agreements. It may be amended only in writing signed by both parties.` },
-  { id: 'estimate', label: 'Estimate — Terms & Disclaimer', content: `This is an estimate only and does not constitute a binding contract. The pricing shown is not the final price; it is a ballpark of what the final price will be close to, and is subject to finalized pricing. Valid for 30 days from the date listed above.` },
+  { id: 'estimate', label: 'Estimate — Terms & Disclaimer', content: `This estimate covers the scope of work described above. The pricing shown is the finalized price for that scope of work. If change orders are added to the project, or if the price of materials is different, the price may change. This estimate is valid for 30 days from the date listed above only; after that date it is no longer valid and the pricing may change.` },
 ];
 
 function roleByKey(key){ return DB.roles.find(r=>r.key===key) || {key, label:key, perms:{}}; }
@@ -1472,7 +1472,13 @@ async function loadAll(){
       ["Late payments may incur a late fee","Late payments will incur a late fee"],
       ["Subcontractor represents that it holds all licenses required by Florida law and applicable local jurisdictions for its trade, and shall maintain general liability insurance and workers' compensation coverage as required by law, providing certificates of insurance upon request.",
        "Subcontractor shall provide GSB with a copy of all licenses required by Florida law and applicable local jurisdictions for its trade, and shall maintain general liability insurance and workers' compensation coverage as required by law. Subcontractor must show proof of coverage sufficient to cover any damages, losses, or claims caused by Subcontractor's work on any GSB job, and shall provide current certificates of insurance before starting work and upon request."],
-      ["This is an estimate only and does not constitute a binding contract. Valid for 30 days","This is an estimate only and does not constitute a binding contract. The pricing shown is not the final price; it is a ballpark of what the final price will be close to, and is subject to finalized pricing. Valid for 30 days"]
+      ["This is an estimate only and does not constitute a binding contract. Valid for 30 days","This is an estimate only and does not constitute a binding contract. The pricing shown is not the final price; it is a ballpark of what the final price will be close to, and is subject to finalized pricing. Valid for 30 days"],
+      ["and is subject to finalized pricing. Valid for 30 days from the date listed above.","and is subject to finalized pricing. Finalized pricing is typically determined at the end of the project, when the work is complete or very close to complete. This estimate is valid for 30 days from the date listed above only; after that date it is no longer valid and the pricing may change."],
+      ["The pricing shown is not the final price; it is a ballpark of what the final price will be close to, and is subject to finalized pricing.","The pricing shown is not the final price and is subject to finalized pricing."],
+      ["Finalized pricing is typically determined at the end of the project","Finalized pricing will be determined at the end of the project"],
+      ["The pricing shown is not the final price and is subject to finalized pricing. Finalized pricing will be determined at the end of the project, when the work is complete or very close to complete.","The pricing shown is the finalized price for the scope of work described above. If change orders are added to the project, the price may change."],
+      ["This is an estimate only and does not constitute a binding contract. The pricing shown is the finalized price for the scope of work described above.","This estimate covers the scope of work described above. The pricing shown is the finalized price for that scope of work."],
+      ["If change orders are added to the project, the price may change.","If change orders are added to the project, or if the price of materials is different, the price may change."]
     ];
     DB.legalDocs.forEach(d=>{
       if(!d || typeof d.content!=='string') return;
@@ -4902,7 +4908,7 @@ function estimatesListView(){
 
 const ESTIMATE_EMAIL_SUBJECT = 'Your Project Estimate — Ready to Sign — GSB General Construction Inc';
 function estimateEmailBody(e, signLink){
-  return `Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your review and signature.\n\nPLEASE NOTE: This is NOT a contract. It is only an estimate of how much we expect the project to cost. If you sign this document, you are agreeing to the price shown and you are okay with moving on to the next step in the process. A formal contract will follow.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))} (a ballpark of the final price, subject to finalized pricing)\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`;
+  return `Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your review and signature.\n\nPLEASE READ: This estimate covers the scope of work described in the document. The pricing shown is the finalized price for that scope of work. If change orders are added to the project, or if the price of materials is different, the price may change. This estimate is valid for 30 days from the date listed on it only; after that date it is no longer valid and the pricing may change.\n\nIf you sign this document, you are agreeing to the price shown and you are okay with moving on to the next step in the process. A formal contract will follow.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))}\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`;
 }
 function estimatePricingTableHTML(e){
   // Permitting/license/inspections are folded into Construction & Installation so the client sees one price
@@ -7744,6 +7750,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-d</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-l</div>
 </body>
 </html>
