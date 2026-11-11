@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.11-b';
+const APP_VERSION = 'v2026.11.11-c';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -4902,7 +4902,7 @@ function estimatesListView(){
 
 const ESTIMATE_EMAIL_SUBJECT = 'Your Project Estimate — Ready to Sign — GSB General Construction Inc';
 function estimateEmailBody(e, signLink){
-  return `Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your signature.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))} (a ballpark of the final price, subject to finalized pricing)\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`;
+  return `Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your review and signature.\n\nPLEASE NOTE: This is NOT a contract. It is only an estimate of how much we expect the project to cost. If you sign this document, you are agreeing to the price shown and you are okay with moving on to the next step in the process. A formal contract will follow.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))} (a ballpark of the final price, subject to finalized pricing)\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`;
 }
 function estimatePricingTableHTML(e){
   // Permitting/license/inspections are folded into Construction & Installation so the client sees one price
@@ -7718,6 +7718,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-b</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-c</div>
 </body>
 </html>
