@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.11-q';
+const APP_VERSION = 'v2026.11.11-r';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -540,7 +540,7 @@ The parties will attempt good-faith negotiation before pursuing formal action. T
 ## 11. Entire Agreement
 
 This Agreement, together with any Orders issued under it, constitutes the entire agreement between the parties regarding its subject matter, and supersedes any prior discussions or agreements. It may be amended only in writing signed by both parties.` },
-  { id: 'estimate', label: 'Estimate — Terms & Disclaimer', content: `This estimate covers the scope of work described above. The pricing shown is the finalized price for that scope of work. If change orders are added to the project, or if the price of materials is different, the price may change. This estimate is valid for 30 days from the date listed above only; after that date it is no longer valid and the pricing may change.` },
+  { id: 'estimate', label: 'Estimate — Terms & Disclaimer', content: `This estimate covers the scope of work described above. The pricing shown is the finalized price for that scope of work. All permit applications are included. Permit fees charged by the city or county are not included and are the Owner's responsibility. If change orders are added to the project, or if the price of materials is different, the price may change. This estimate is valid for 30 days from the date listed above only; after that date it is no longer valid and the pricing may change.` },
 ];
 
 function roleByKey(key){ return DB.roles.find(r=>r.key===key) || {key, label:key, perms:{}}; }
@@ -1469,7 +1469,8 @@ async function loadAll(){
       ["Finalized pricing is typically determined at the end of the project","Finalized pricing will be determined at the end of the project"],
       ["The pricing shown is not the final price and is subject to finalized pricing. Finalized pricing will be determined at the end of the project, when the work is complete or very close to complete.","The pricing shown is the finalized price for the scope of work described above. If change orders are added to the project, the price may change."],
       ["This is an estimate only and does not constitute a binding contract. The pricing shown is the finalized price for the scope of work described above.","This estimate covers the scope of work described above. The pricing shown is the finalized price for that scope of work."],
-      ["If change orders are added to the project, the price may change.","If change orders are added to the project, or if the price of materials is different, the price may change."]
+      ["If change orders are added to the project, the price may change.","If change orders are added to the project, or if the price of materials is different, the price may change."],
+      ["The pricing shown is the finalized price for that scope of work. If change orders","The pricing shown is the finalized price for that scope of work. All permit applications are included. Permit fees charged by the city or county are not included and are the Owner's responsibility. If change orders"]
     ];
     DB.legalDocs.forEach(d=>{
       if(!d || typeof d.content!=='string') return;
@@ -4901,7 +4902,7 @@ function estimatesListView(){
 
 const ESTIMATE_EMAIL_SUBJECT = 'Your Project Estimate — Ready to Sign — GSB General Construction Inc';
 function estimateEmailBody(e, signLink){
-  return `Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your review and signature.\n\nPLEASE READ: This estimate covers the scope of work described in the document. The pricing shown is the finalized price for that scope of work. If change orders are added to the project, or if the price of materials is different, the price may change. This estimate is valid for 30 days from the date listed on it only; after that date it is no longer valid and the pricing may change.\n\nIf you sign this document, you are agreeing to the price shown and you are okay with moving on to the next step in the process. A formal contract will follow.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))}\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`;
+  return `Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your review and signature.\n\nPLEASE READ: This estimate covers the scope of work described in the document. The pricing shown is the finalized price for that scope of work. All permit applications are included. Permit fees charged by the city or county are not included and are the Owner's responsibility. If change orders are added to the project, or if the price of materials is different, the price may change. This estimate is valid for 30 days from the date listed on it only; after that date it is no longer valid and the pricing may change.\n\nIf you sign this document, you are agreeing to the price shown and you are okay with moving on to the next step in the process. A formal contract will follow.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))}\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`;
 }
 function estimatePricingTableHTML(e){
   // Permitting/license/inspections are folded into Construction & Installation so the client sees one price
@@ -4927,10 +4928,12 @@ function payLabelsFor(c){
   if(c && c.status==='signed') return PAY_LEGACY;       // contracts signed before this feature keep what they signed
   return (c && c.demo && String(c.demo).trim()) ? PAY_TEMPLATES.standard : PAY_TEMPLATES.nodemo;
 }
+const PERMIT_NOTE_TEXT = 'All permit applications are included in the contract price. Permit fees charged by the city or county are not included and are paid by the Owner.';
 function contractScopeHTML(c){
   const parts = [['Demolition',c.demo],['Construction & Installation',c.constr],['Electrical & Plumbing',c.ep]].filter(x=>x[1] && String(x[1]).trim());
-  if(!parts.length) return notesSection('Scope of Work','');
-  return `<div class="section-label">Scope of Work</div>` + parts.map(x=>`<div class="subtle" style="font-weight:600;margin:8px 0 3px;">${x[0]}</div><div class="notes-block">${esc(x[1])}</div>`).join('');
+  const note = `<div class="subtle" style="margin-top:10px;"><b>Permits:</b> ${esc(PERMIT_NOTE_TEXT)}</div>`;
+  if(!parts.length) return notesSection('Scope of Work','') + note;
+  return `<div class="section-label">Scope of Work</div>` + parts.map(x=>`<div class="subtle" style="font-weight:600;margin:8px 0 3px;">${x[0]}</div><div class="notes-block">${esc(x[1])}</div>`).join('') + note;
 }
 function paymentSectionHTML(c, editable){
   return `<div class="section-label">Payment Schedule</div>
@@ -5036,6 +5039,7 @@ function contractPrintBody(c, paper){
       </div>
       <h4 style="margin:16px 0 4px;text-transform:uppercase;color:#7A6A45;font-size:12px;border-bottom:2px solid #ddd;padding-bottom:3px;">Scope of Work</h4>
       ${scopeParts.length ? scopeParts.map(x=>`<div style="font-weight:bold;font-size:12px;margin:10px 0 3px;">${x[0]}</div><div style="background:#EEE9DC;border:1px solid #ddd;border-radius:6px;padding:10px 14px;white-space:pre-wrap;font-size:13px;line-height:1.6;">${esc(x[1])}</div>`).join('') : '<p>Nothing noted</p>'}
+      <p style="margin-top:14px;font-size:12.5px;"><b>Permits:</b> ${esc(PERMIT_NOTE_TEXT)}</p>
       <p style="margin-top:18px;"><b>Total Contract Price: ${money(c.pricing.total)}</b> &nbsp;<span style="font-size:11px;color:#6B6455;">(the payment schedule is on the last page)</span></p>
       ${(paper && !c.signedOnPaper && !c.signature) ? `<div class="page-initials"><span>Owner has read and initialed this page:</span><b>____________</b></div>` : ''}
       <div class="page-footer">GSB General Construction Inc &nbsp;•&nbsp; License #CGC1539336 &nbsp;•&nbsp; Contract Summary</div>
@@ -7896,6 +7900,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-q</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-r</div>
 </body>
 </html>
