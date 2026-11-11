@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.11-n';
+const APP_VERSION = 'v2026.11.11-o';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -4962,7 +4962,9 @@ function printDocument(title, bodyHtml){
   const w = window.open('', '_blank', 'width=850,height=1100');
   if(!w){ alert('Your browser blocked the print window. Please allow pop-ups for this app.'); return; }
   w.document.write(`<!DOCTYPE html><html><head><title>${title}</title><style>
-    body{font-family:Georgia,'Times New Roman',serif;color:#2A261E;padding:44px;max-width:780px;margin:0 auto;line-height:1.55;}
+    @page{size:letter;margin:0.5in;}
+    body{font-family:Georgia,'Times New Roman',serif;color:#2A261E;padding:0;max-width:720px;margin:0 auto;line-height:1.5;font-size:13px;}
+    @media screen{body{padding:24px 0;}}
     h2,h3,h4{font-family:Georgia,serif;}
     h2{text-align:center;color:#7A6A45;margin-bottom:2px;}
     .sub{text-align:center;color:#6B6455;font-size:12px;margin-bottom:18px;}
@@ -4972,12 +4974,24 @@ function printDocument(title, bodyHtml){
     .legal h4{font-size:12px;margin:10px 0 3px;text-transform:uppercase;color:#7A6A45;}
     img.sig{height:85px;margin-top:6px;}
     .lbl{color:#6B6455;font-size:10.5px;text-transform:uppercase;}
-    .contract-page{page-break-after:always;padding-bottom:10px;}
-    .contract-page:last-child{page-break-after:auto;}
+    .contract-page{page-break-after:always;break-after:page;page-break-inside:avoid;padding-bottom:4px;}
+    .contract-page:last-child{page-break-after:auto;break-after:auto;}
+    .contract-page h4{margin:10px 0 3px;}
+    .contract-page p{margin:5px 0;}
     .page-initials{margin-top:26px;border-top:1px solid #ccc;padding-top:8px;font-size:11px;color:#6B6455;display:flex;justify-content:space-between;}
     .page-initials b{color:#2A261E;font-size:13px;letter-spacing:1px;}
     .page-footer{margin-top:6px;font-size:9.5px;color:#999;text-align:center;}
-  </style></head><body>${bodyHtml}<script>window.onload=()=>{window.print();}<\/script></body></html>`);
+  </style></head><body>${bodyHtml}<script>window.onload=()=>{
+    // size all contract pages together (same text size on every page) so the tallest one still fits on one sheet
+    var pages = Array.prototype.slice.call(document.querySelectorAll('.contract-page'));
+    if(pages.length){
+      var MAXH = 9.4*96, tallest = 1;
+      pages.forEach(function(p){ p.style.zoom = 1; tallest = Math.max(tallest, p.offsetHeight); });
+      var z = Math.max(0.6, Math.min(1.3, (MAXH/tallest)*0.97));
+      pages.forEach(function(p){ p.style.zoom = z; });
+    }
+    window.print();
+  }<\/script></body></html>`);
   w.document.close();
 }
 function paperSignatureBlockHTML(c){
@@ -7847,6 +7861,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-n</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-o</div>
 </body>
 </html>
