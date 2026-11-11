@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.11-p';
+const APP_VERSION = 'v2026.11.11-q';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -1138,7 +1138,7 @@ function contractContentFingerprint(c){
     clientName:c.clientName, clientPhone:c.clientPhone, address:c.address,
     demo:c.demo, constr:c.constr, ep:c.ep, owner:c.owner,
     total:c.pricing.total, p1:c.pricing.p1, p2:c.pricing.p2, p3:c.pricing.p3, p4:c.pricing.p4, p5:c.pricing.p5, p6:c.pricing.p6, p7:c.pricing.p7,
-    pl: c.payLabels ? JSON.stringify(c.payLabels) : undefined,
+    pl: c.payLabels ? JSON.stringify(c.payLabels) : undefined, county: c.county || undefined,
   }));
 }
 function estimateContentFingerprint(e){
@@ -1314,7 +1314,7 @@ function renderPublicSignBody(c){
         <h3 class="disp" style="font-size:17px;text-align:center;">CONSTRUCTION CONTRACT AGREEMENT</h3>
         <div class="detail-grid" style="margin:12px 0;">${c.jobName?dg('Job Name',c.jobName):''}${dg('Owner Name',c.clientName)}${dg('Owner Phone',c.clientPhone)}${dg('Project Address',c.address)}${dg('Contract Date',fmtDate(c.date))}</div>
         ${contractScopeHTML(c)}
-        ${(()=>{ const cs = legalSlotSettings('construction'); return cs.mode==='pdf' ? `<div class="section-label">Contract Document</div>${uploadedDocPreviewHTML(cs, 380)}` : `<div class="section-label">Full Agreement</div><div class="legal-block" style="max-height:none;overflow:visible;">${getContractPages().map(pg=>pg.html).join('<hr style="border:none;border-top:1px dashed var(--line);margin:10px 0;">')}</div>`; })()}
+        ${(()=>{ const cs = legalSlotSettings('construction'); return cs.mode==='pdf' ? `<div class="section-label">Contract Document</div>${uploadedDocPreviewHTML(cs, 380)}` : `<div class="section-label">Full Agreement</div><div class="legal-block" style="max-height:none;overflow:visible;">${getContractPages(c).map(pg=>pg.html).join('<hr style="border:none;border-top:1px dashed var(--line);margin:10px 0;">')}</div>`; })()}
         ${paymentSectionHTML(c, false)}
         ${alreadySigned ? `
           <div class="section-label">${c.signedOnPaper?'Signed on Paper':'Signature — Captured'}</div>
@@ -5040,7 +5040,7 @@ function contractPrintBody(c, paper){
       ${(paper && !c.signedOnPaper && !c.signature) ? `<div class="page-initials"><span>Owner has read and initialed this page:</span><b>____________</b></div>` : ''}
       <div class="page-footer">GSB General Construction Inc &nbsp;•&nbsp; License #CGC1539336 &nbsp;•&nbsp; Contract Summary</div>
     </div>`;
-  const pagesHtml = getContractPages().map(pg => `
+  const pagesHtml = getContractPages(c).map(pg => `
     <div class="contract-page">
       ${pg.html}
       ${pg.page===5 ? `
@@ -5133,8 +5133,25 @@ function contractsListView(){
   </div>`;
 }
 
-function getContractPages(){
-  return [1,2,3,4,5].map(n => ({ page:n, html: parseLiteMarkup(getLegalDoc('contract-page-'+n).content) }));
+function guessCounty(address){
+  const a = String(address||'');
+  if(/\b(miami|hialeah|doral|homestead|kendall|aventura|sunny isles|coral gables|cutler bay|palmetto bay|key biscayne|opa.?locka|north miami|florida city|south miami|west miami|pinecrest|medley|sweetwater|surfside|bal harbour|bay harbor)\b/i.test(a)) return 'Miami-Dade County';
+  if(/\b(palm beach|boca raton|delray|boynton|jupiter|wellington|royal palm|lake worth|greenacres)\b/i.test(a)) return 'Palm Beach County';
+  return 'Broward County';
+}
+function contractCounty(c){
+  if(c && c.county && String(c.county).trim()) return String(c.county).trim();
+  if(c && c.status==='signed') return 'Broward County';          // contracts signed before this feature keep what they signed
+  return guessCounty(c && c.address);
+}
+const COUNTY_DATALIST = '<datalist id="county-list"><option value="Broward County"><option value="Miami-Dade County"><option value="Palm Beach County"></datalist>';
+function getContractPages(c){
+  const county = c ? contractCounty(c) : null;
+  return [1,2,3,4,5].map(n => {
+    let src = getLegalDoc('contract-page-'+n).content;
+    if(county && county!=='Broward County') src = src.split('the City and Broward County').join('the City and '+county);   // permits are pulled in the county where the job is
+    return { page:n, html: parseLiteMarkup(src) };
+  });
 }
 
 
@@ -6021,6 +6038,7 @@ function contractForm(d){
   return `<div class="modal-head"><h2 class="page-title" style="margin:0">Build Contract</h2><button class="close-x" data-action="close-modal">×</button></div>
     <div class="section-label">Parties & Project Info <span class="tag category">Auto-filled from estimate</span></div>
     <div class="detail-grid" style="margin-bottom:10px;">${d.jobName?dg('Job Name',d.jobName):''}${dg('Owner Name',d.clientName)}${dg('Owner Phone',d.clientPhone)}${dg('Owner Email',d.clientEmail)}${dg('Project Address',d.address)}</div>
+    <div class="field" style="max-width:360px;"><label>County where the job is (used for permits in the contract)</label><input id="c-county" list="county-list" value="${esc(contractCounty({address:d.address}))}" placeholder="e.g. Miami-Dade County">${COUNTY_DATALIST}</div>
     <div class="section-label">Scope of Work <span class="tag category">Auto-filled from estimate</span></div>
     ${notesSection('Demolition', d.demo)}${notesSection('Construction & Installation', d.constr)}${notesSection('Electrical & Plumbing', d.ep)}
     <div class="section-label">Contract Price & Payment Schedule <span class="tag category">Office locks this</span></div>
@@ -6039,14 +6057,14 @@ function contractForm(d){
     <div class="section-label">Standard Terms (Full Agreement — Sections 1–25)</div>
     ${legalSlotSettings('construction').mode==='pdf' ?
       uploadedDocPreviewHTML(legalSlotSettings('construction'), 340) :
-      `<div class="legal-block" style="max-height:none;overflow:visible;">${getContractPages().map(pg=>pg.html).join('<hr style="border:none;border-top:1px dashed var(--line);margin:10px 0;">')}</div>`}
+      `<div class="legal-block" style="max-height:none;overflow:visible;">${getContractPages({address:d.address, county:d.county}).map(pg=>pg.html).join('<hr style="border:none;border-top:1px dashed var(--line);margin:10px 0;">')}</div>`}
     <div class="field chk"><input type="checkbox" id="c-photorelease"> Owner opts OUT of photo/marketing release (Section 23)</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px;"><button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn" data-action="save-contract" data-estimate="${d.estimateId}">Lock Contract Terms</button></div>`;
 }
 
 function contractPagesReadHTML(c, editable){
   const initials = c.pageInitials || {};
-  return getContractPages().map(pg => `
+  return getContractPages(c).map(pg => `
     <div style="border:1px solid var(--line);border-radius:6px;padding:14px 16px;margin-bottom:10px;background:#fff;">
       ${pg.html}
       ${pg.page!==5 ? `
@@ -6114,6 +6132,8 @@ function contractDetailView(c){
         ${contractPagesReadHTML(c, true)}
       `}
       ${paymentSectionHTML(c, true)}
+      <div class="field" style="margin:6px 0 10px;"><label>County where the job is (used for permits in the contract)</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;"><input id="c-county-edit" list="county-list" value="${esc(contractCounty(c))}" style="flex:1;min-width:200px;">${COUNTY_DATALIST}<button class="btn small" data-action="save-county" data-id="${c.id}">Save County</button></div></div>
       <div class="section-label">Owner Signature</div>
       <div class="sig-pad-wrap"><canvas id="sig-contract" class="sig-pad"></canvas><div class="sig-hint">Client signs here to accept this contract</div></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
@@ -6721,7 +6741,7 @@ function inspectionForm(cid,pid){
       <div class="field"><label>Date</label><input type="date" id="ins-date" value="${todayStr()}"></div>
       <div class="field"><label>Time</label><input type="time" id="ins-time"></div>
     </div>
-    <div class="field"><label>Note</label><input id="ins-note" placeholder="e.g. Framing inspection with Broward County"></div>
+    <div class="field"><label>Note</label><input id="ins-note" placeholder="e.g. Framing inspection with the county"></div>
     <div class="banner-note">This is logged in the app now. Once we're on the real build, this will also auto-add to your synced Google Calendar / Wix booking calendar.</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;"><button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn" data-action="save-inspection" data-cid="${cid}" data-pid="${pid}">Save Inspection</button></div>`;
 }
@@ -6977,7 +6997,7 @@ Office@gsbconstructions.com`);
     const contract = { id:uid(), estimateId, onsiteId:e.onsiteId, dateCreated:nowISO(), date:todayStr(), status:'locked',
       jobName:e.jobName||'', clientName:e.clientName, clientPhone:e.clientPhone, clientEmail:e.clientEmail, address:e.address, demo:e.demo, constr:e.constr, ep:e.ep, owner:e.owner,
       pricing:{ total:val('c-total')||0, p1:val('c-p1')||0, p2:val('c-p2')||0, p3:val('c-p3')||0, p4:val('c-p4')||0, p5:val('c-p5')||0, p6:val('c-p6')||0, p7:val('c-p7')||0 },
-      payLabels: readPayLabels(document), photoReleaseOptOut: document.getElementById('c-photorelease').checked, signature:null, signedAt:null,
+      county: (document.getElementById('c-county').value||'').trim() || guessCounty(e.address), payLabels: readPayLabels(document), photoReleaseOptOut: document.getElementById('c-photorelease').checked, signature:null, signedAt:null,
       pageInitials:{}, sentRemote:false, sentRemoteAt:null };
     DB.contracts.push(contract); await saveRecord('contracts', contract); STATE.modal=null; render();
   });
@@ -7278,6 +7298,14 @@ Office@gsbconstructions.com`);
     }
     printDocument('Contract — '+c.clientName, contractPrintBody(c, true));
   }));
+  bindClick('save-county', async (el)=>{
+    const c = DB.contracts.find(x=>x.id===el.dataset.id); if(!c || c.status==='signed') return;
+    const v = (document.getElementById('c-county-edit').value||'').trim();
+    c.county = v || guessCounty(c.address);
+    await saveRecord('contracts', c);
+    STATE.modal = {type:'contract-detail', data:c, sigCanvasId:'sig-contract'}; render();
+    showToast('✓ County saved: '+c.county);
+  });
   bindClick('save-pay-labels', async (el)=>{
     const c = DB.contracts.find(x=>x.id===el.dataset.id); if(!c || c.status==='signed') return;
     c.payLabels = readPayLabels(el.closest('[data-pay-root]'));
@@ -7868,6 +7896,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-p</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-q</div>
 </body>
 </html>
