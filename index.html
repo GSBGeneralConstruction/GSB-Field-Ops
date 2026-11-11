@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.11-c';
+const APP_VERSION = 'v2026.11.11-d';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -5610,7 +5610,7 @@ document.addEventListener('click', (e)=>{
 });
 
 /* ================= STANDARD MATERIALS (pre-loaded) ================= */
-const MAT_CATS = ['Drywall','Metal Framing','Lumber & Sheathing','Screws & Fasteners','Finishing & Mud','Insulation','Electrical','Plumbing','Paint & Caulk','Tile & Flooring','Doors & Trim','Cabinets & Counters','Windows & Exterior','Concrete & Masonry','Roofing','HVAC','Hardware','Tools & Safety','Misc / Jobsite'];
+const MAT_CATS = ['Drywall','Wall Panels','Metal Framing','Lumber & Sheathing','Screws & Fasteners','Finishing & Mud','Insulation','Electrical','Plumbing','Paint & Caulk','Tile & Flooring','Doors & Trim','Cabinets & Counters','Windows & Exterior','Concrete & Masonry','Roofing','HVAC','Hardware','Tools & Safety','Misc / Jobsite'];
 const STD_MATERIALS = [
  ['Drywall','Drywall 1/2" Regular','4x8 sheet','sheet'],['Drywall','Drywall 1/2" Regular','4x12 sheet','sheet'],
  ['Drywall','Drywall 1/2" Lightweight','4x8 sheet','sheet'],['Drywall','Drywall 5/8" Type X (fire-rated)','4x8 sheet','sheet'],
@@ -5751,7 +5751,33 @@ const STD_MATERIALS_V3 = [
  ['Doors & Trim','Rubber Cove Base 4"','120 ft roll','roll'],['Doors & Trim','Outside Corner Block (baseboard)','each','block'],['Doors & Trim','Inside Corner Block (baseboard)','each','block'],
  ['Paint & Caulk','Backer Rod 3/8"','20 ft','roll'],['Paint & Caulk','Backer Rod 1/2"','20 ft','roll'],['Paint & Caulk','Backer Rod 3/4"','20 ft','roll'],['Paint & Caulk','Paintable Caulk (trim & crown)','10 oz tube','tube'],
 ];
-const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3';
+const STD_MATERIALS_V4 = [
+ // Purple (moisture/mold-resistant) drywall — more sizes
+ ['Drywall','Drywall 1/2" Moisture/Mold Resistant (purple)','4x8 sheet','sheetpurple'],['Drywall','Drywall 1/2" Moisture/Mold Resistant (purple)','4x10 sheet','sheetpurple'],['Drywall','Drywall 1/2" Moisture/Mold Resistant (purple)','4x12 sheet','sheetpurple'],
+ ['Drywall','Drywall 5/8" Moisture/Mold Resistant (purple)','4x10 sheet','sheetpurple'],['Drywall','Drywall 5/8" Moisture/Mold Resistant (purple)','4x12 sheet','sheetpurple'],
+ ['Drywall','Drywall 5/8" Type X Moisture/Mold Resistant (purple, fire-rated)','4x8 sheet','sheetpurple'],['Drywall','Drywall 5/8" Type X Moisture/Mold Resistant (purple, fire-rated)','4x10 sheet','sheetpurple'],['Drywall','Drywall 5/8" Type X Moisture/Mold Resistant (purple, fire-rated)','4x12 sheet','sheetpurple'],
+ // DensShield tile backer
+ ['Drywall','DensShield Tile Backer 1/2"','3x5 sheet','sheetgold'],['Drywall','DensShield Tile Backer 1/2"','4x5 sheet','sheetgold'],['Drywall','DensShield Tile Backer 1/2"','4x8 sheet','sheetgold'],['Drywall','DensShield Tile Backer 5/8"','4x8 sheet','sheetgold'],
+ // Metal studs — 8 ft lengths
+ ['Metal Framing','Metal Stud 1-5/8" 25ga','8 ft','stud'],['Metal Framing','Metal Stud 2-1/2" 20ga (structural)','8 ft','stud'],['Metal Framing','Metal Stud 4" 25ga','8 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 20ga (structural)','8 ft','stud'],['Metal Framing','Metal Stud 8" 20ga (structural)','8 ft','stud'],['Metal Framing','Metal Stud 3-5/8" 18ga (structural)','8 ft','stud'],
+ ['Metal Framing','Metal Track 3-5/8" 25ga','8 ft','track'],['Metal Framing','Metal Track 2-1/2" 25ga','8 ft','track'],['Metal Framing','Metal Track 6" 25ga','8 ft','track'],
+ // Wood — more sizes, pressure treated (PT) and regular
+ ['Lumber & Sheathing','1x2 Pressure Treated','8 ft','boardgreen'],['Lumber & Sheathing','1x2 Pressure Treated','10 ft','boardgreen'],['Lumber & Sheathing','1x3 Pressure Treated','8 ft','boardgreen'],
+ ['Lumber & Sheathing','1x4 Pressure Treated','8 ft','boardgreen'],['Lumber & Sheathing','1x4 Pressure Treated','10 ft','boardgreen'],['Lumber & Sheathing','1x4 Pressure Treated','12 ft','boardgreen'],
+ ['Lumber & Sheathing','1x6 Pressure Treated','8 ft','boardgreen'],['Lumber & Sheathing','1x6 Pressure Treated','10 ft','boardgreen'],['Lumber & Sheathing','1x6 Pressure Treated','12 ft','boardgreen'],
+ ['Lumber & Sheathing','2x2 Pressure Treated','8 ft','boardgreen'],['Lumber & Sheathing','2x3 Pressure Treated','8 ft','boardgreen'],
+ ['Lumber & Sheathing','2x4 Pressure Treated','16 ft','boardgreen'],['Lumber & Sheathing','2x6 Pressure Treated','10 ft','boardgreen'],['Lumber & Sheathing','2x6 Pressure Treated','16 ft','boardgreen'],
+ ['Lumber & Sheathing','2x8 Pressure Treated','8 ft','boardgreen'],['Lumber & Sheathing','2x8 Pressure Treated','10 ft','boardgreen'],['Lumber & Sheathing','2x8 Pressure Treated','16 ft','boardgreen'],
+ ['Lumber & Sheathing','2x10 Pressure Treated','12 ft','boardgreen'],['Lumber & Sheathing','2x12 Pressure Treated','12 ft','boardgreen'],
+ ['Lumber & Sheathing','1x2 Pine','8 ft','board'],['Lumber & Sheathing','1x3 Pine','8 ft','board'],['Lumber & Sheathing','1x4 Pine','12 ft','board'],['Lumber & Sheathing','1x6 Pine','10 ft','board'],['Lumber & Sheathing','1x6 Pine','12 ft','board'],
+ // FRP / plastic wall panels and the glue for them
+ ['Wall Panels','FRP Panel (plastic wall panel) White .090"','4x8 sheet','sheetwhite'],['Wall Panels','FRP Panel (plastic wall panel) White .090"','4x10 sheet','sheetwhite'],
+ ['Wall Panels','FRP Panel Adhesive (glue for plastic wall panels)','1 gal pail','bucket'],['Wall Panels','FRP Panel Adhesive (glue for plastic wall panels)','3.5 gal pail','bucket'],
+ ['Wall Panels','FRP Divider / Joint Trim (plastic)','8 ft','board'],['Wall Panels','FRP Inside Corner Trim (plastic)','8 ft','board'],['Wall Panels','FRP Outside Corner Trim (plastic)','8 ft','board'],['Wall Panels','FRP Edge / Cap Trim (plastic)','8 ft','board'],
+ ['Wall Panels','Silicone Sealant White (FRP seams)','10 oz tube','tube'],['Wall Panels','PVC Wall Panel (bathroom/shower panel)','4x8 sheet','sheetwhite'],
+];
+const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3', MAT_SEED_MARKER4 = 'std-seeded-v4';
 function matList(){ return DB.materials.filter(m=>!m.system); }
 /* Material picker for the Pricing Calculator: full scrolling list, or filtered while you type in the search box */
 function matOptionsHTML(selectedId, query){
@@ -5787,7 +5813,7 @@ function matIconSVG(key){
   const f = (inner)=>`<svg viewBox="0 0 40 40" width="100%" height="100%" aria-hidden="true">${inner}</svg>`;
   const sheet=(c,c2)=>f(`<rect x="5" y="9" width="30" height="22" rx="1.5" fill="${c}" stroke="${c2}" stroke-width="1.5"/><line x1="5" y1="14" x2="35" y2="14" stroke="${c2}" stroke-width="1"/>`);
   const m = {
-   sheet:()=>sheet('#EDE6D6','#A89B7C'), sheetgreen:()=>sheet('#C8DCB8','#6B8F55'), sheetgray:()=>sheet('#CFCFCF','#8A8A8A'), sheetwood:()=>sheet('#E3C28E','#A67C3E'), sheetpink:()=>sheet('#F4C6D0','#C46A82'),
+   sheet:()=>sheet('#EDE6D6','#A89B7C'), sheetgreen:()=>sheet('#C8DCB8','#6B8F55'), sheetgray:()=>sheet('#CFCFCF','#8A8A8A'), sheetwood:()=>sheet('#E3C28E','#A67C3E'), sheetpink:()=>sheet('#F4C6D0','#C46A82'), sheetpurple:()=>sheet('#D9C4E6','#8D62A8'), sheetgold:()=>sheet('#E8D48A','#B39A3A'), sheetwhite:()=>sheet('#F7F7F7','#9A9A9A'),
    stud:()=>f(`<path d="M13 6h14v28H13z" fill="#D5DADF" stroke="#7B858F" stroke-width="1.5"/><path d="M13 6h4v28h-4z M23 6h4v28h-4z" fill="#B7BEC6"/><circle cx="20" cy="12" r="2" fill="#fff" stroke="#7B858F"/><circle cx="20" cy="20" r="2" fill="#fff" stroke="#7B858F"/><circle cx="20" cy="28" r="2" fill="#fff" stroke="#7B858F"/>`),
    track:()=>f(`<path d="M6 12h28v18H6z" fill="none"/><path d="M6 14v14h28V14h-4v10H10V14z" fill="#C9CFD5" stroke="#7B858F" stroke-width="1.5" stroke-linejoin="round"/>`),
    board:()=>f(`<rect x="4" y="14" width="32" height="12" rx="1" fill="#D9B27C" stroke="#9A7440" stroke-width="1.5"/><path d="M8 18h10M20 22h12" stroke="#B88B54" stroke-width="1.2"/>`),
@@ -5828,7 +5854,7 @@ function matThumbHTML(m, size){
 async function seedStandardMaterials(force){
   const have = new Set(DB.materials.map(m=>m.id));
   const offline = (typeof navigator!=='undefined' && navigator.onLine===false);
-  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2}, {marker:MAT_SEED_MARKER3, items:STD_MATERIALS_V3} ];
+  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2}, {marker:MAT_SEED_MARKER3, items:STD_MATERIALS_V3}, {marker:MAT_SEED_MARKER4, items:STD_MATERIALS_V4} ];
   const added = [];
   for(const bt of batches){
     if(!force){ if(have.has(bt.marker)) continue; if(offline) continue; }   // never seed from an empty offline cache
@@ -7718,6 +7744,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-c</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-d</div>
 </body>
 </html>
