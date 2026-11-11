@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.11-a';
+const APP_VERSION = 'v2026.11.11-b';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -1238,10 +1238,8 @@ function renderPublicChangeOrderBody(o){
     }
   }));
 }
-function renderPublicEstimateSignBody(e){
-  const app = document.getElementById('app');
-  const alreadySigned = !!e.signedAt;
-  app.innerHTML = `
+function publicEstimateCardHTML(e, alreadySigned){
+  return `
     <div class="login-wrap" style="align-items:flex-start;padding:20px 14px;">
       <div class="login-card" style="max-width:640px;width:100%;text-align:left;">
         <div style="text-align:center;"><img class="login-logo" src="${LOGO}"></div>
@@ -1270,6 +1268,11 @@ function renderPublicEstimateSignBody(e){
         `}
       </div>
     </div>`;
+}
+function renderPublicEstimateSignBody(e){
+  const app = document.getElementById('app');
+  const alreadySigned = !!e.signedAt;
+  app.innerHTML = publicEstimateCardHTML(e, alreadySigned);
   if(!alreadySigned) bindSignatureChooser();
   document.querySelectorAll('[data-action="public-print"]').forEach(el=>el.addEventListener('click', ()=> window.print()));
   document.querySelectorAll('[data-action="public-submit-estimate-sign"]').forEach(el=>el.addEventListener('click', async ()=>{
@@ -4897,20 +4900,24 @@ function estimatesListView(){
   </div>`;
 }
 
-function estimatePricingTableHTML(e){
-  const fin = (e.finishes||[]); const lf = (e.laborFlats||[]);
-  return `<table class="hist"><tr><td>Permitting${e.permitDetail?`<div class="subtle" style="font-size:11.5px;">${esc(e.permitDetail)}</div>`:''}</td><td style="text-align:right;">${money(e.pricing.permit)}</td></tr>
-      <tr><td>Construction & Installation${fin.length?`<div class="subtle" style="font-size:11.5px;">Includes finishes (flat fees): ${fin.map(x=>esc(x.name)+' '+money(x.price)).join(' · ')}</div>`:''}${lf.length?`<div class="subtle" style="font-size:11.5px;">Includes flat-fee work: ${lf.map(x=>esc(x.name)+' '+money(x.price)).join(' · ')}</div>`:''}</td><td style="text-align:right;">${money(e.pricing.constr)}</td></tr>
-      <tr><td><b>Total Estimated Price</b></td><td style="text-align:right;"><b>${money(totalEstimate(e))}</b></td></tr></table>
-      ${fin.length?`<div class="subtle" style="margin-top:8px;font-style:italic;">${FINISHES_NOTE}</div>`:(lf.length?`<div class="subtle" style="margin-top:8px;font-style:italic;">${LABOR_FLAT_NOTE}</div>`:'')}`;
+const ESTIMATE_EMAIL_SUBJECT = 'Your Project Estimate — Ready to Sign — GSB General Construction Inc';
+function estimateEmailBody(e, signLink){
+  return `Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your signature.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))} (a ballpark of the final price, subject to finalized pricing)\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`;
 }
+function estimatePricingTableHTML(e){
+  // Permitting/license/inspections are folded into Construction & Installation so the client sees one price
+  const total = totalEstimate(e);
+  return `<table class="hist"><tr><td>Construction & Installation</td><td style="text-align:right;">${money(total)}</td></tr>
+      <tr><td><b>Total Estimated Price</b></td><td style="text-align:right;"><b>${money(total)}</b></td></tr></table>`;
+}
+function totalEstimate(e){ const p=e.pricing; return (parseFloat(p.permit)||0)+(parseFloat(p.constr)||0); }
+
 /* Payment schedule: 10 / 40 / 15 / 12 / 10 / 8 / 5 (last payment is the remainder so it always adds up exactly) */
 function paymentSchedule(total){
   total = parseFloat(total)||0;
   const p1=Math.round(total*0.10), p2=Math.round(total*0.40), p3=Math.round(total*0.15), p4=Math.round(total*0.12), p5=Math.round(total*0.10), p6=Math.round(total*0.08);
   return { total, p1, p2, p3, p4, p5, p6, p7: total-(p1+p2+p3+p4+p5+p6) };
 }
-function totalEstimate(e){ const p=e.pricing; return (parseFloat(p.permit)||0)+(parseFloat(p.constr)||0); }
 
 /* ---- Print / Email ---- */
 function printDocument(title, bodyHtml){
@@ -5195,10 +5202,11 @@ function renderPricingCalculatorPage(){
     <div class="subtle" style="margin-bottom:8px;">${esc(f.clientName||'')}${f.jobName?' — '+esc(f.jobName):''} · <span id="pc-save-status-top">Auto-saves as you type</span></div>
     <div class="subtle">${esc(f.clientName)} — ${esc(f.propertyAddress)}</div>
     <div style="display:flex;gap:6px;margin:12px 0 4px;">
-      <button type="button" class="btn ${STATE.pcView==='customer'?'ghost ':''}small" data-pricing-action="pc-view" data-view="edit">✏️ Calculator</button>
+      <button type="button" class="btn ${(STATE.pcView==='customer'||STATE.pcView==='link')?'ghost ':''}small" data-pricing-action="pc-view" data-view="edit">✏️ Calculator</button>
       <button type="button" class="btn ${STATE.pcView==='customer'?'':'ghost '}small" data-pricing-action="pc-view" data-view="customer">👁 Customer View</button>
+      <button type="button" class="btn ${STATE.pcView==='link'?'':'ghost '}small" data-pricing-action="pc-view" data-view="link">📧 Email Link View</button>
     </div>
-    ${STATE.pcView==='customer' ? customerViewHTML(f, pb) : `
+    ${STATE.pcView==='customer' ? customerViewHTML(f, pb) : STATE.pcView==='link' ? linkViewHTML(f, pb) : `
     <datalist id="store-list">${storeSuggestions().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
     <div class="section-label">Materials</div>
     <div class="field" style="max-width:300px;margin-bottom:10px;"><label>Materials Markup (%) — added on top of all the materials below</label><input type="number" data-pricing-action="set-materials-markup" value="${pb.materialsMarkupPct||0}" placeholder="e.g. 30"></div>
@@ -5339,18 +5347,20 @@ function renderPricingCalculatorPage(){
     </div>
     <div class="subtle" style="text-align:right;margin-top:6px;">Everything you enter here saves automatically to this job.</div>`}`;
 }
-function customerViewHTML(f, pb){
+function estimateFromWorksheet(f, pb){
   const pv = pbEstimatePreview(pb);
   const em = clientEmailFor(f.clientName,f.phone)||f.email||'';
-  const e = { jobName:(f.jobName||(f.clientName+' — Project')), date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:em,
+  return { id:'preview', jobName:(f.jobName||(f.clientName+' — Project')), date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:em,
     demo:f.demo, constr:f.constr, ep:f.ep, pricing:pv.pricing, permitDetail:pv.permitDetail, finishes:pv.finishes, laborFlats:pv.laborFlats };
+}
+function customerDocsHTML(f, pb){
+  const e = estimateFromWorksheet(f, pb);
   const total = totalEstimate(e);
   const pay = paymentSchedule(total);
   const c = { clientName:e.clientName, clientPhone:e.clientPhone, address:e.address, jobName:e.jobName, date:todayStr(), constr:e.constr, pricing:pay, pageInitials:{} };
   const hdr = `<div class="mono" style="font-size:11px;color:var(--muted);">13311 SW 9th Pl, Davie, FL 33325 | 954-605-4746 | Office@gsbconstructions.com</div>
       <div style="font-size:10.5px;color:var(--muted);margin-bottom:12px;">Florida License #CGC1539336</div>`;
-  return `<div class="banner-note" style="margin:10px 0;">👁 This is exactly what your customer will see — first the Estimate, then the Contract that gets built from it. Your materials, markup, store names and hourly rates are NOT shown to them. (Nothing is saved or sent from this screen.)</div>
-    <div class="section-label">1. The Estimate</div>
+  return `<div class="section-label">1. The Estimate</div>
     <div style="border:1px solid var(--line);border-radius:8px;padding:22px;background:#fff;">
       ${hdr}
       <h3 class="disp" style="font-size:17px;">PROJECT ESTIMATE</h3>
@@ -5378,9 +5388,43 @@ function customerViewHTML(f, pb){
         <tr><td>7. Final Payment (5%) — final inspection passed, punch list complete</td><td style="text-align:right;">${money(pay.p7)}</td></tr>
       </table>
       <details style="margin-top:14px;"><summary style="cursor:pointer;font-weight:600;">Show the full contract pages (1–5)</summary><div style="margin-top:10px;">${contractPagesReadHTML(c, false)}</div></details>
+    </div>`;
+}
+function scopeTextarea(label, action, val){
+  return `<div class="field" style="margin-bottom:8px;"><label>${label}</label><textarea data-pricing-action="${action}" rows="3" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line);border-radius:5px;font:inherit;">${esc(val||'')}</textarea></div>`;
+}
+function customerViewHTML(f, pb){
+  return `<div class="banner-note" style="margin:10px 0;">👁 This is exactly what your customer will see — first the Estimate, then the Contract that gets built from it. Your materials, markup, store names, permit/inspection breakdown and hourly rates are NOT shown to them. Nothing is sent from this screen.</div>
+    <div class="card" style="margin-bottom:12px;">
+      <div style="font-weight:700;margin-bottom:4px;">✏️ Scope of Work — type here and the preview below updates</div>
+      <div class="subtle" style="margin-bottom:8px;">Changes save to this job's worksheet automatically.</div>
+      ${scopeTextarea('Demolition','set-scope-demo',f.demo)}${scopeTextarea('Construction & Installation','set-scope-constr',f.constr)}${scopeTextarea('Electrical & Plumbing','set-scope-ep',f.ep)}
+    </div>
+    <div id="cv-docs">${customerDocsHTML(f, pb)}</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap;">
+      <button class="btn ghost" data-pricing-action="pc-view" data-view="edit">← Back to Calculator</button>
+      <button class="btn" data-pricing-action="use-total">Save & Build Estimate</button>
+    </div>`;
+}
+function linkViewHTML(f, pb){
+  const e = estimateFromWorksheet(f, pb);
+  const fakeLink = signBaseUrl() + '?sign=••••••••&e=••••••••';
+  const body = estimateEmailBody(e, fakeLink);
+  return `<div class="banner-note" style="margin:10px 0;">📧 This is what your customer gets: first the email, then the page that opens when they tap the link. It is a preview only — nothing is sent and nothing can be signed here.</div>
+    <div class="section-label">1. The email they receive</div>
+    <div style="border:1px solid var(--line);border-radius:8px;padding:16px 18px;background:#fff;">
+      <div class="subtle" style="font-size:12px;">To: ${esc(e.clientEmail||'(client email)')}</div>
+      <div style="font-weight:700;margin:4px 0 10px;">${esc(ESTIMATE_EMAIL_SUBJECT)}</div>
+      <div style="white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.5;">${esc(body)}</div>
+    </div>
+    <div class="section-label">2. The page that opens when they tap the link</div>
+    <style>#link-preview .login-wrap{min-height:0 !important;height:auto !important;}</style>
+    <div id="link-preview" style="border:2px solid var(--line);border-radius:14px;background:var(--bg,#f6f3ec);overflow:hidden;">
+      <div style="pointer-events:none;user-select:none;-webkit-user-select:none;">${publicEstimateCardHTML(e, false)}</div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap;">
       <button class="btn ghost" data-pricing-action="pc-view" data-view="edit">← Back to Calculator</button>
+      <button class="btn ghost" data-pricing-action="pc-view" data-view="customer">👁 Customer View</button>
       <button class="btn" data-pricing-action="use-total">Save & Build Estimate</button>
     </div>`;
 }
@@ -6782,9 +6826,9 @@ Office@gsbconstructions.com`);
     const signLink = signBaseUrl() + '?sign=' + e.remoteSignToken + '&e=' + e.id;
     openSendLinkDialog({
       title:'Send Estimate to Client', email:e.clientEmail, toName:e.clientName,
-      subject:'Your Project Estimate — Ready to Sign — GSB General Construction Inc',
+      subject:ESTIMATE_EMAIL_SUBJECT,
       link:signLink,
-      body:`Hi ${e.clientName},\n\nYour project estimate for ${e.address} is ready for your signature.\n\nPlease open the link below to review and sign it online. You can draw your signature with your finger or type your name:\n${signLink}\n\nTotal Estimated Price: ${money(totalEstimate(e))} (a ballpark of the final price, subject to finalized pricing)\n\nIf you have any questions, call us at 954-605-4746.\n\nThank you for choosing GSB General Construction Inc.`,
+      body: estimateEmailBody(e, signLink),
       onEmail:(to)=>{
         let ch=false;
         if(to && to!==e.clientEmail){ e.clientEmail=to; ch=true; }
@@ -6824,7 +6868,7 @@ Office@gsbconstructions.com`);
   bindClick('close-calculator', async ()=>{ if(_pcDirty) await savePricingNow(false); STATE.pricingCalcOnsiteId = null; STATE.pcView = 'edit'; render(); });
   bindClick('save-calculation', async ()=>{ await savePricingNow(true); });
   document.querySelectorAll('[data-pricing-action]').forEach(el=>{
-    const eventName = (el.tagName==='SELECT') ? 'change' : (el.tagName==='INPUT' ? 'input' : 'click');
+    const eventName = (el.tagName==='SELECT') ? 'change' : ((el.tagName==='INPUT'||el.tagName==='TEXTAREA') ? 'input' : 'click');
     el.addEventListener(eventName, async ()=>{
       const action = el.dataset.pricingAction;
       const f = DB.onsite.find(x=>x.id===STATE.pricingCalcOnsiteId);
@@ -6847,9 +6891,14 @@ Office@gsbconstructions.com`);
       if(action==='remove-measure-line'){ pb.measureLines = pb.measureLines.filter(l=>l.id!==lineId); render(); return; }
       if(action==='set-measure-material'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l){ l.materialId = el.value; if(el.value && el.value!=='__other'){ const m = DB.materials.find(x=>x.id===el.value); l.name = m ? m.name : ''; } } render(); return; }
       if(action==='set-measure-unit'){ const l=pb.measureLines.find(x=>x.id===lineId); if(l) l.unit = el.value; render(); return; }
+      if(action==='set-scope-demo' || action==='set-scope-constr' || action==='set-scope-ep'){
+        if(action==='set-scope-demo') f.demo = el.value; if(action==='set-scope-constr') f.constr = el.value; if(action==='set-scope-ep') f.ep = el.value;
+        const box = document.getElementById('cv-docs'); if(box) box.innerHTML = customerDocsHTML(f, pb);
+        return;
+      }
       if(action==='add-laborflat-line'){ pb.laborFlatLines.push({ id:uid(), name:'', price:'' }); render(); return; }
       if(action==='remove-laborflat-line'){ pb.laborFlatLines = pb.laborFlatLines.filter(l=>l.id!==lineId); render(); return; }
-      if(action==='pc-view'){ STATE.pcView = el.dataset.view==='customer' ? 'customer' : 'edit'; render(); window.scrollTo(0,0); return; }
+      if(action==='pc-view'){ STATE.pcView = (el.dataset.view==='customer'||el.dataset.view==='link') ? el.dataset.view : 'edit'; render(); window.scrollTo(0,0); return; }
       if(action==='add-finish-line'){ pb.finishLines.push({ id:uid(), name:'', price:'' }); render(); return; }
       if(action==='remove-finish-line'){ pb.finishLines = pb.finishLines.filter(l=>l.id!==lineId); render(); return; }
       if(action==='add-new-material'){ STATE.matPhoto = undefined; STATE.modal = { type:'new-material-form' }; render(); return; }
@@ -7669,6 +7718,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-a</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-b</div>
 </body>
 </html>
