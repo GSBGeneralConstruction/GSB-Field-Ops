@@ -256,7 +256,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.11-o';
+const APP_VERSION = 'v2026.11.11-p';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -1138,6 +1138,7 @@ function contractContentFingerprint(c){
     clientName:c.clientName, clientPhone:c.clientPhone, address:c.address,
     demo:c.demo, constr:c.constr, ep:c.ep, owner:c.owner,
     total:c.pricing.total, p1:c.pricing.p1, p2:c.pricing.p2, p3:c.pricing.p3, p4:c.pricing.p4, p5:c.pricing.p5, p6:c.pricing.p6, p7:c.pricing.p7,
+    pl: c.payLabels ? JSON.stringify(c.payLabels) : undefined,
   }));
 }
 function estimateContentFingerprint(e){
@@ -1312,13 +1313,9 @@ function renderPublicSignBody(c){
         <div style="font-size:10.5px;color:var(--muted);margin-bottom:12px;text-align:center;">Florida License #CGC1539336</div>
         <h3 class="disp" style="font-size:17px;text-align:center;">CONSTRUCTION CONTRACT AGREEMENT</h3>
         <div class="detail-grid" style="margin:12px 0;">${c.jobName?dg('Job Name',c.jobName):''}${dg('Owner Name',c.clientName)}${dg('Owner Phone',c.clientPhone)}${dg('Project Address',c.address)}${dg('Contract Date',fmtDate(c.date))}</div>
-        ${notesSection('Scope Summary', c.constr)}
-        <div class="section-label">Payment Schedule</div>
-        <table class="hist">
-          <tr><td>Total Contract Price</td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
-        ${paymentRowsHTML(c.pricing, payLabelsFor(c))}
-        </table>
+        ${contractScopeHTML(c)}
         ${(()=>{ const cs = legalSlotSettings('construction'); return cs.mode==='pdf' ? `<div class="section-label">Contract Document</div>${uploadedDocPreviewHTML(cs, 380)}` : `<div class="section-label">Full Agreement</div><div class="legal-block" style="max-height:none;overflow:visible;">${getContractPages().map(pg=>pg.html).join('<hr style="border:none;border-top:1px dashed var(--line);margin:10px 0;">')}</div>`; })()}
+        ${paymentSectionHTML(c, false)}
         ${alreadySigned ? `
           <div class="section-label">${c.signedOnPaper?'Signed on Paper':'Signature — Captured'}</div>
           ${c.signature ? `<img src="${c.signature}" style="border:1px solid var(--line);border-radius:6px;background:#fff;height:100px;">` : ''}
@@ -4917,20 +4914,39 @@ function totalEstimate(e){ const p=e.pricing; return (parseFloat(p.permit)||0)+(
 /* Payment schedule: 10 / 40 / 15 / 12 / 10 / 8 / 5 (last payment is the remainder so it always adds up exactly) */
 /* ---- Payment schedule wording (percentages fixed; WHEN each payment is due is editable per job) ---- */
 const PAY_PCT = {p1:10,p2:40,p3:15,p4:12,p5:10,p6:8,p7:5};
-const PAY_NAMES = {p1:'Deposit',p2:'First Progress',p3:'Second Progress',p4:'Third Progress',p5:'Fourth Progress',p6:'Fifth Progress',p7:'Final Payment'};
+const PAY_NAMES = {p1:'Deposit',p2:'First Progress Payment',p3:'Second Progress Payment',p4:'Third Progress Payment',p5:'Fourth Progress Payment',p6:'Fifth Progress Payment',p7:'Final Payment'};
+const PAY_LEGACY = { p1:'', p2:'when work starts', p3:'demo done, rough-in ready for inspection', p4:'rough inspection passed, walls closed up', p5:'finish materials delivered, main finishes going in', p6:'finishes installed, trim and paint mostly done', p7:'final inspection passed, punch list complete' };  // wording of contracts signed before payment timing became editable
 const PAY_TEMPLATES = {
+  nodemo:{ label:'Install / finish work (no demolition)',
+    p1:'due at signing of this contract', p2:'due when the job starts', p3:'due after the rough inspections pass', p4:'due after the walls are closed up (drywall installed)', p5:'due after the doors and molding are installed', p6:'due when the job is ready for the final inspection', p7:'due after the final inspection passes' },
   standard:{ label:'Remodel with demolition',
-    p1:'due at signing', p2:'when work starts', p3:'demo done, rough-in ready for inspection', p4:'rough inspection passed, walls closed up', p5:'finish materials delivered, main finishes going in', p6:'finishes installed, trim and paint mostly done', p7:'final inspection passed, punch list complete' },
-  nodemo:{ label:'No demolition (install / finish work)',
-    p1:'due at signing', p2:'when work starts', p3:'framing and door openings complete, ready for inspection', p4:'inspection passed, drywall and panels installed', p5:'doors and trim installed, finishing started', p6:'paint and finishes mostly done', p7:'final inspection passed, punch list complete' }
+    p1:'due at signing of this contract', p2:'due when the job starts', p3:'due after demolition is done and the rough inspections pass', p4:'due after the walls are closed up (drywall installed)', p5:'due after the doors, molding and main finishes are installed', p6:'due when the job is ready for the final inspection', p7:'due after the final inspection passes' }
 };
 function payLabelsFor(c){
   if(c && c.payLabels) return c.payLabels;
-  if(c && c.status==='signed') return PAY_TEMPLATES.standard;       // contracts signed before this feature keep what they signed
+  if(c && c.status==='signed') return PAY_LEGACY;       // contracts signed before this feature keep what they signed
   return (c && c.demo && String(c.demo).trim()) ? PAY_TEMPLATES.standard : PAY_TEMPLATES.nodemo;
 }
+function contractScopeHTML(c){
+  const parts = [['Demolition',c.demo],['Construction & Installation',c.constr],['Electrical & Plumbing',c.ep]].filter(x=>x[1] && String(x[1]).trim());
+  if(!parts.length) return notesSection('Scope of Work','');
+  return `<div class="section-label">Scope of Work</div>` + parts.map(x=>`<div class="subtle" style="font-weight:600;margin:8px 0 3px;">${x[0]}</div><div class="notes-block">${esc(x[1])}</div>`).join('');
+}
+function paymentSectionHTML(c, editable){
+  return `<div class="section-label">Payment Schedule</div>
+    <div class="subtle" style="margin-bottom:6px;">Each payment is due when that stage of the job is reached, as listed below.</div>
+    <table class="hist">
+      <tr><td>Total Contract Price</td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
+      ${paymentRowsHTML(c.pricing, payLabelsFor(c))}
+    </table>
+    ${editable ? `<details style="margin:8px 0 10px;border:1px solid var(--line);border-radius:6px;padding:8px 12px;background:#fff;" data-pay-root="1">
+      <summary style="cursor:pointer;font-weight:600;">✏️ Change when each payment is due (to match this job)</summary>
+      <div style="margin-top:10px;">${payLabelsEditorHTML(payLabelsFor(c))}
+        <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="btn small" data-action="save-pay-labels" data-id="${c.id}">Save Payment Timing</button></div></div>
+    </details>` : ''}`;
+}
 function paymentRowsHTML(pay, labels){
-  labels = labels || PAY_TEMPLATES.standard;
+  labels = labels || PAY_TEMPLATES.nodemo;
   return ['p1','p2','p3','p4','p5','p6','p7'].map((k,i)=>{
     const t = (labels[k]!=null ? String(labels[k]).trim() : '');
     return `<tr><td>${i+1}. ${PAY_NAMES[k]} (${PAY_PCT[k]}%)${t?' — '+esc(t):''}</td><td style="text-align:right;">${money(pay[k])}</td></tr>`;
@@ -5009,6 +5025,7 @@ function contractPrintBody(c, paper){
   const initials = c.pageInitials || {};
   const lbl = (t)=>`<div class="lbl" style="margin-top:2px;">${t}</div>`;
   const cell = (t,v)=>`<div>${lbl(t)}<div style="font-size:13px;">${esc(v||'—')}</div></div>`;
+  const scopeParts = [['Demolition',c.demo],['Construction & Installation',c.constr],['Electrical & Plumbing',c.ep]].filter(x=>x[1] && String(x[1]).trim());
   const cover = `
     <div class="contract-page">
       <h2>GSB GENERAL CONSTRUCTION INC.</h2>
@@ -5017,13 +5034,9 @@ function contractPrintBody(c, paper){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 28px;margin:14px 0;">
         ${c.jobName?cell('Job Name',c.jobName):''}${cell('Owner Name',c.clientName)}${cell('Owner Phone',c.clientPhone)}${cell('Project Address',c.address)}${cell('Contract Date',fmtDate(c.date))}
       </div>
-      <h4 style="margin:16px 0 4px;text-transform:uppercase;color:#7A6A45;font-size:12px;border-bottom:2px solid #ddd;padding-bottom:3px;">Scope Summary</h4>
-      <div style="background:#EEE9DC;border:1px solid #ddd;border-radius:6px;padding:10px 14px;white-space:pre-wrap;font-size:13px;line-height:1.6;">${esc(c.constr||'Nothing noted')}</div>
-      <h4 style="margin:18px 0 4px;text-transform:uppercase;color:#7A6A45;font-size:12px;border-bottom:2px solid #ddd;padding-bottom:3px;">Payment Schedule</h4>
-      <table>
-        <tr><td><b>Total Contract Price</b></td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
-        ${paymentRowsHTML(c.pricing, payLabelsFor(c))}
-      </table>
+      <h4 style="margin:16px 0 4px;text-transform:uppercase;color:#7A6A45;font-size:12px;border-bottom:2px solid #ddd;padding-bottom:3px;">Scope of Work</h4>
+      ${scopeParts.length ? scopeParts.map(x=>`<div style="font-weight:bold;font-size:12px;margin:10px 0 3px;">${x[0]}</div><div style="background:#EEE9DC;border:1px solid #ddd;border-radius:6px;padding:10px 14px;white-space:pre-wrap;font-size:13px;line-height:1.6;">${esc(x[1])}</div>`).join('') : '<p>Nothing noted</p>'}
+      <p style="margin-top:18px;"><b>Total Contract Price: ${money(c.pricing.total)}</b> &nbsp;<span style="font-size:11px;color:#6B6455;">(the payment schedule is on the last page)</span></p>
       ${(paper && !c.signedOnPaper && !c.signature) ? `<div class="page-initials"><span>Owner has read and initialed this page:</span><b>____________</b></div>` : ''}
       <div class="page-footer">GSB General Construction Inc &nbsp;•&nbsp; License #CGC1539336 &nbsp;•&nbsp; Contract Summary</div>
     </div>`;
@@ -5031,6 +5044,12 @@ function contractPrintBody(c, paper){
     <div class="contract-page">
       ${pg.html}
       ${pg.page===5 ? `
+        <h4>Payment Schedule</h4>
+        <p style="font-size:12px;margin:2px 0 4px;">Each payment is due when that stage of the job is reached, as listed below.</p>
+        <table>
+          <tr><td><b>Total Contract Price</b></td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
+          ${paymentRowsHTML(c.pricing, payLabelsFor(c))}
+        </table>
         <h4>Signatures</h4>
         ${c.signature ? `<img class="sig" src="${c.signature}"><div class="sub" style="text-align:left;">Contractor/Owner Signed ${fmtDateTime(c.signedAt)}</div>`
           : c.signedOnPaper ? `<p>Signed on paper on ${fmtDateTime(c.signedAt)}. The signed paper copy is on file with GSB General Construction Inc.</p>`
@@ -5421,7 +5440,7 @@ function customerDocsHTML(f, pb){
   const e = estimateFromWorksheet(f, pb);
   const total = totalEstimate(e);
   const pay = paymentSchedule(total);
-  const c = { clientName:e.clientName, clientPhone:e.clientPhone, address:e.address, jobName:e.jobName, date:todayStr(), constr:e.constr, pricing:pay, pageInitials:{} };
+  const c = { clientName:e.clientName, clientPhone:e.clientPhone, address:e.address, jobName:e.jobName, date:todayStr(), demo:e.demo, constr:e.constr, ep:e.ep, pricing:pay, pageInitials:{} };
   const hdr = `<div class="mono" style="font-size:11px;color:var(--muted);">13311 SW 9th Pl, Davie, FL 33325 | 954-605-4746 | Office@gsbconstructions.com</div>
       <div style="font-size:10.5px;color:var(--muted);margin-bottom:12px;">Florida License #CGC1539336</div>`;
   return `<div class="section-label">1. The Estimate</div>
@@ -5439,13 +5458,9 @@ function customerDocsHTML(f, pb){
       ${hdr}
       <h3 class="disp" style="font-size:17px;">CONSTRUCTION CONTRACT AGREEMENT</h3>
       <div class="detail-grid" style="margin-bottom:12px;">${dg('Job Name',c.jobName)}${dg('Owner Name',c.clientName)}${dg('Owner Phone',c.clientPhone)}${dg('Project Address',c.address)}${dg('Contract Date',fmtDate(c.date))}</div>
-      ${notesSection('Scope Summary', c.constr)}
-      <div class="section-label">Payment Schedule</div>
-      <table class="hist">
-        <tr><td>Total Contract Price</td><td style="text-align:right;"><b>${money(pay.total)}</b></td></tr>
-        ${paymentRowsHTML(pay, payLabelsFor(e))}
-      </table>
+      ${contractScopeHTML(c)}
       <details style="margin-top:14px;"><summary style="cursor:pointer;font-weight:600;">Show the full contract pages (1–5)</summary><div style="margin-top:10px;">${contractPagesReadHTML(c, false)}</div></details>
+      ${paymentSectionHTML(Object.assign({}, c, {demo:e.demo}), false)}
     </div>`;
 }
 function scopeTextarea(label, action, val){
@@ -6069,16 +6084,12 @@ function contractDetailView(c){
       <div style="font-size:10.5px;color:var(--muted);margin-bottom:12px;">Florida License #CGC1539336</div>
       <h3 class="disp" style="font-size:17px;">CONSTRUCTION CONTRACT AGREEMENT</h3>
       <div class="detail-grid" style="margin-bottom:12px;">${c.jobName?dg('Job Name',c.jobName):''}${dg('Owner Name',c.clientName)}${dg('Owner Phone',c.clientPhone)}${dg('Project Address',c.address)}${dg('Contract Date',fmtDate(c.date))}</div>
-      ${notesSection('Scope Summary', c.constr)}
-      <div class="section-label">Payment Schedule</div>
-      <table class="hist">
-        <tr><td>Total Contract Price</td><td style="text-align:right;"><b>${money(c.pricing.total)}</b></td></tr>
-        ${paymentRowsHTML(c.pricing, payLabelsFor(c))}
-      </table>
+      ${contractScopeHTML(c)}
       ${isPdfMode ? `<div class="section-label">Contract Document</div>${uploadedDocPreviewHTML(constructionSettings, 420)}` : ''}
     </div>
     ${c.status==='signed' ? `
       ${(!isPdfMode && !c.signedOnPaper) ? `<div class="section-label">Full Agreement (Sections 1–25) — As Signed</div>${contractPagesReadHTML(c, false)}` : ''}
+      ${paymentSectionHTML(c, false)}
       ${c.signedOnPaper ? `<div class="section-label">Signed on Paper — Photos of the Signed Contract</div>
         <div class="photo-grid">${(paperScansFor(c)).map(f=>planCardHTML(f,false)).join('') || '<span class="subtle">No photos found.</span>'}</div>
         <div class="subtle">Signed on paper ${fmtDateTime(c.signedAt)} — client and project auto-added to Clients. The photos are also under the project's documents.</div>` : `<div class="section-label">Signature — Captured</div>
@@ -6093,11 +6104,6 @@ function contractDetailView(c){
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
         <button class="btn ghost small" data-action="send-remote-contract" data-id="${c.id}">Send for Remote Signature</button>
       </div>`}
-      <details style="margin:0 0 10px;border:1px solid var(--line);border-radius:6px;padding:8px 12px;background:#fff;" data-pay-root="1">
-        <summary style="cursor:pointer;font-weight:600;">✏️ Change when each payment is due (to match this job)</summary>
-        <div style="margin-top:10px;">${payLabelsEditorHTML(payLabelsFor(c))}
-          <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="btn small" data-action="save-pay-labels" data-id="${c.id}">Save Payment Timing</button></div></div>
-      </details>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin:0 0 10px;flex-wrap:wrap;">
         <button class="btn small" data-action="print-contract-paper" data-id="${c.id}">🖨 Print for Paper Signing</button>
       </div>
@@ -6107,6 +6113,7 @@ function contractDetailView(c){
         <div class="section-label">Full Agreement (Sections 1–25) — Read & Initial Each Page</div>
         ${contractPagesReadHTML(c, true)}
       `}
+      ${paymentSectionHTML(c, true)}
       <div class="section-label">Owner Signature</div>
       <div class="sig-pad-wrap"><canvas id="sig-contract" class="sig-pad"></canvas><div class="sig-hint">Client signs here to accept this contract</div></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
@@ -7861,6 +7868,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-o</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.11-p</div>
 </body>
 </html>
