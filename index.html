@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.13-i';
+const APP_VERSION = 'v2026.11.13-j';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -4389,6 +4389,23 @@ function sk2CalcCtx(plan, m, c){
   return { walls:segs.length, L, H, sp, sides:c.sides, studs, doors:doors.length, wins:wins.length, doorW, oneSide, wallSqft:oneSide*c.sides,
     floor: rooms.reduce((t,r)=>t + r._f.net/144, 0), rooms, waste: 1 + Math.max(0, +c.waste||0)/100, wastePct: Math.max(0, +c.waste||0) };
 }
+// Ceiling / floor framing: members run across the short way of each room, one every <sp> inches (+ one at each end)
+function sk2RoomFraming(rooms, sp){
+  let members = 0, lf = 0, maxSpan = 0, spans = [];
+  (rooms||[]).forEach(r=>{
+    const P = (r._f && r._f.pts) || []; if(P.length < 3) return;
+    const xs = P.map(q=>q.x), ys = P.map(q=>q.y), w = Math.max(...xs)-Math.min(...xs), h = Math.max(...ys)-Math.min(...ys);
+    const alongX = w >= h;   // members spaced along the long side, each one spans the short way
+    const lo = alongX ? Math.min(...xs) : Math.min(...ys), hi = alongX ? Math.max(...xs) : Math.max(...ys);
+    const cut = (t)=>{ const hits = []; for(let i=0;i<P.length;i++){ const a = P[i], b = P[(i+1)%P.length];
+        const a1 = alongX ? a.x : a.y, b1 = alongX ? b.x : b.y, a2 = alongX ? a.y : a.x, b2 = alongX ? b.y : b.x;
+        if((a1 <= t && b1 > t) || (b1 <= t && a1 > t)) hits.push(a2 + (t-a1)/(b1-a1)*(b2-a2)); }
+      hits.sort((m,n)=>m-n); let L = 0; for(let i=0;i+1<hits.length;i+=2) L += hits[i+1]-hits[i]; return L; };
+    const n = Math.max(1, Math.ceil((hi-lo)/sp - 1e-9));
+    for(let k=0;k<=n;k++){ let t = Math.min(hi, lo + k*sp); t = k===0 ? lo + 0.25 : (k===n ? hi - 0.25 : t); const L = cut(t); if(L > 0.5){ members++; lf += L; spans.push(L); if(L > maxSpan) maxSpan = L; } }
+  });
+  return { members, lf, maxSpan, spans };
+}
 function sk2ItemQty(it, x){
   const up = (v)=> Math.max(0, Math.ceil(v - 1e-9)), w = x.waste, p = +it.p || 0, p2 = +it.p2 || 0, pct = x.wastePct ? ' + '+x.wastePct+'%' : '';
   const sf = (v)=> Math.round(v).toLocaleString();
@@ -4396,15 +4413,30 @@ function sk2ItemQty(it, x){
   switch(it.method){
     case 'sheets':  return needWalls({ qty: p ? up(x.wallSqft*w/p) : 0, how: sf(x.wallSqft)+' sq ft of wall ('+(x.sides==1?'1 side':'both sides')+') ÷ '+p+' sq ft a sheet'+pct });
     case 'ceiling': return x.floor ? { qty: p ? up(x.floor*w/p) : 0, how: sf(x.floor)+' sq ft of ceiling ÷ '+sf(p)+' sq ft each'+pct } : { qty:0, how:'Needs a room: tap inside a room → 🧮 Materials for this room' };
-    case 'studs': { const short = p && p*12 < x.H - 0.5 ? ' ⚠ '+p+' ft is shorter than the '+sk2Fmt(x.H)+' walls' : '';
+    case 'studs': if(it.where==='ceiling' || it.where==='floor'){
+      if(!x.floor) return { qty:0, how:'Needs a room: tap inside a room → 🧮 Materials for this room' };
+      const fr = sk2RoomFraming(x.rooms, x.sp), len = p*12;
+      const pcs = len ? fr.spans.reduce((t,L)=>t + Math.ceil(L/len - 1e-9), 0) : fr.members;
+      const joined = len && fr.maxSpan > len + 0.5 ? ' (spans over '+p+' ft get 2+ pieces spliced)' : '';
+      return { qty: up(pcs*w), how: 'Across the '+it.where+' one every '+x.sp+'" + one at each end = '+fr.members+' runs, longest '+sk2Fmt(fr.maxSpan)+(joined ? ' → '+pcs+' pieces'+joined : '')+pct };
+    }
+    { const short = p && p*12 < x.H - 0.5 ? ' ⚠ '+p+' ft is shorter than the '+sk2Fmt(x.H)+' walls' : '';
       return needWalls({ qty: up(x.studs*w), how: 'One every '+x.sp+'" + the end of each wall + 2 at each door/window = '+x.studs+pct+short }); }
-    case 'track': { const rows = p2 || 2, lf = (x.L*rows - x.doorW)/12; return needWalls({ qty: p ? up(lf*w/p) : 0, how: rows+' rows along '+(x.L/12).toFixed(1)+' LF (doors left open) = '+lf.toFixed(0)+' LF ÷ '+p+' ft pieces'+pct }); }
+    case 'track': if(it.where==='ceiling' || it.where==='floor'){
+      if(!x.floor) return { qty:0, how:'Needs a room: tap inside a room → 🧮 Materials for this room' };
+      const lf = x.rooms.reduce((t,r)=>t + r._f.perim/12, 0); return { qty: p ? up(lf*w/p) : 0, how: lf.toFixed(1)+' LF around the '+it.where+' edge ÷ '+p+' ft pieces'+pct };
+    }
+    { const rows = p2 || 2, lf = (x.L*rows - x.doorW)/12; return needWalls({ qty: p ? up(lf*w/p) : 0, how: rows+' rows along '+(x.L/12).toFixed(1)+' LF (doors left open) = '+lf.toFixed(0)+' LF ÷ '+p+' ft pieces'+pct }); }
     case 'wall':    return needWalls({ qty: p ? up(x.wallSqft*w/p) : 0, how: sf(x.wallSqft)+' sq ft of wall ÷ '+sf(p)+' sq ft each'+pct });
     case 'cavity':  return needWalls({ qty: p ? up(x.oneSide*w/p) : 0, how: sf(x.oneSide)+' sq ft of wall (one side) ÷ '+sf(p)+' sq ft each'+pct });
     case 'floor':   return x.floor ? { qty: p ? up(x.floor*w/p) : 0, how: sf(x.floor)+' sq ft of floor ÷ '+sf(p)+' sq ft each'+pct } : { qty:0, how:'Needs a room: tap inside a room → 🧮 Materials for this room' };
     case 'perim': { const lf = x.L/12; return needWalls({ qty: p ? up(lf*w/p) : 0, how: lf.toFixed(1)+' LF around the edge ÷ '+p+' ft pieces'+pct }); }
     case 'lf': { const lf = (x.L - x.doorW)/12*x.sides; return needWalls({ qty: p ? up(lf*w/p) : 0, how: lf.toFixed(0)+' LF ('+(x.sides==1?'1 side':'both sides')+', doors left out) ÷ '+p+' ft each'+pct }); }
-    case 'perstud': { const n = up(x.studs*w)*p; return needWalls({ qty: p2 ? up(n/p2) : n, how: p+' per stud × '+up(x.studs*w)+' studs = '+n.toLocaleString()+(p2 ? ' ÷ '+p2.toLocaleString()+' a box' : '') }); }
+    case 'perstud': if(it.where==='ceiling' || it.where==='floor'){
+      if(!x.floor) return { qty:0, how:'Needs a room: tap inside a room → 🧮 Materials for this room' };
+      const fr = sk2RoomFraming(x.rooms, x.sp), n = up(fr.members*w)*p; return { qty: p2 ? up(n/p2) : n, how: p+' per stud × '+up(fr.members*w)+' '+it.where+' studs = '+n.toLocaleString()+(p2 ? ' ÷ '+p2.toLocaleString()+' a box' : '') };
+    }
+    { const n = up(x.studs*w)*p; return needWalls({ qty: p2 ? up(n/p2) : n, how: p+' per stud × '+up(x.studs*w)+' studs = '+n.toLocaleString()+(p2 ? ' ÷ '+p2.toLocaleString()+' a box' : '') }); }
     case 'anchors': { const n = up((x.L - x.doorW)/(p||24) + x.walls); return needWalls({ qty: p2 ? up(n/p2) : n, how: 'One every '+(p||24)+'" + one at each end = '+n+(p2 ? ' ÷ '+p2+' a box' : '') }); }
     case 'doors':   return { qty: x.doors, how: x.doors+' door'+(x.doors===1?'':'s')+' on the selected walls' };
     case 'windows': return { qty: x.wins, how: x.wins+' window'+(x.wins===1?'':'s')+' on the selected walls' };
@@ -4443,7 +4475,7 @@ function sk2CalcHTML(plan, m){
           ${def.p ? `<label>${esc(def.p)}<input type="number" inputmode="decimal" step="any" min="0" data-sk2c-p="${i}" value="${it.p ?? ''}"></label>` : ''}
           ${def.p2 ? `<label>${esc(def.p2)}<input type="number" inputmode="decimal" step="any" min="0" data-sk2c-p2="${i}" value="${it.p2 ?? ''}"></label>` : ''}
         </div>` : ''}
-      <div class="sk2-area">${[['walls','🧱 Walls'],['floor','⬜ Floor'],['ceiling','⬛ Ceiling']].map(([k,l])=>{ const cur = it.method==='floor' ? 'floor' : (it.method==='ceiling' || it.method==='perim') ? 'ceiling' : it.method==='manual' ? '' : 'walls'; return `<button type="button" class="${cur===k?'on':''}" data-sk2p="calcarea" data-i="${i}" data-area="${k}">${l}</button>`; }).join('')}</div>
+      <div class="sk2-area">${[['walls','🧱 Walls'],['floor','⬜ Floor'],['ceiling','⬛ Ceiling']].map(([k,l])=>{ const cur = (it.where && ['studs','track','perstud'].includes(it.method)) ? it.where : it.method==='floor' ? 'floor' : (it.method==='ceiling' || it.method==='perim') ? 'ceiling' : it.method==='manual' ? '' : 'walls'; return `<button type="button" class="${cur===k?'on':''}" data-sk2p="calcarea" data-i="${i}" data-area="${k}">${l}</button>`; }).join('')}</div>
       <div class="acts"><button type="button" data-sk2p="calcedit" data-i="${i}">${open ? '✓ Done' : '⚙ How it\'s counted'}</button><button type="button" data-sk2p="calcdel" data-i="${i}">✕ Remove</button></div>
     </div>`;
   }).join('');
@@ -4749,8 +4781,10 @@ function sk2PanelAction(a, btn){
     const areaP = ['sheets','wall','cavity','floor','ceiling'].includes(it.method) ? it.p : (sheetA || (/sq ?ft|sf/i.test(mm && mm.size || '') ? 1 : 1));
     const area = btn.dataset.area;
     if(area==='ceiling' && it.method==='perim'){ return; }   // wall angle already goes around the ceiling's edge
-    if(area==='floor' || area==='ceiling'){ it.method = area; it.p = areaP; delete it.p2; }
-    else { if(['walls'].includes(area)){ if(g.method && !['floor','ceiling','manual'].includes(g.method)){ it.method = g.method; it.p = g.p; if(g.p2!=null) it.p2 = g.p2; } else { it.method = sheetA ? 'sheets' : 'wall'; it.p = areaP || 32; } } }
+    const frameM = ['studs','track','perstud'].includes(it.method) ? it.method : (['studs','track','perstud'].includes(g.method) ? g.method : null);
+    if((area==='floor' || area==='ceiling') && frameM){ if(it.method !== frameM){ it.method = g.method; it.p = g.p; if(g.p2!=null) it.p2 = g.p2; } it.where = area; }
+    else if(area==='floor' || area==='ceiling'){ it.method = area; it.p = areaP; delete it.p2; delete it.where; }
+    else { delete it.where; if(['walls'].includes(area)){ if(g.method && !['floor','ceiling','manual'].includes(g.method)){ it.method = g.method; it.p = g.p; if(g.p2!=null) it.p2 = g.p2; } else { it.method = sheetA ? 'sheets' : 'wall'; it.p = areaP || 32; } } }
     S.calcEdit = null; sk2SaveItems(); sk2Panel();
     const x = sk2CalcCtx(S.plan, S.multi||sk2EmptySet(), sk2CalcSettings());
     if((area==='floor' || area==='ceiling') && !x.rooms.length) sk2Toast('Counted on the '+area+' — tap inside a room and pick 🧮 Materials for this room to get its '+area+' area');
@@ -11626,6 +11660,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-i</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-j</div>
 </body>
 </html>
