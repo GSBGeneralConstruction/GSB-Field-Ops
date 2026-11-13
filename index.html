@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.13-d';
+const APP_VERSION = 'v2026.11.13-e';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3690,7 +3690,12 @@ function sk2Draw(target){
     }
   });
   // corners
-  if(!target){ ctx.fillStyle = '#2A261E'; plan.shapes.forEach(sh=>sh.pts.forEach(p=>{ const q = W2S(p); ctx.beginPath(); ctx.arc(q.x,q.y, Math.max(1.5, wallPx*0.5), 0, Math.PI*2); ctx.fill(); })); }
+  if(!target){
+    const handles = S.tool==='select' && !S.readOnly;
+    plan.shapes.forEach(sh=>sh.pts.forEach(p=>{ const q = W2S(p); ctx.beginPath();
+      if(handles){ ctx.arc(q.x,q.y, 7, 0, Math.PI*2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = '#1F6FD1'; ctx.stroke(); }
+      else { ctx.arc(q.x,q.y, Math.max(1.5, wallPx*0.5), 0, Math.PI*2); ctx.fillStyle = '#2A261E'; ctx.fill(); } }));
+  }
   // boxes (cabinets, appliances…)
   plan.boxes.forEach(bx=>{
     const c = W2S(bx), isSel = (sel && sel.kind==='box' && sel.id===bx.id) || inM('boxes', bx.id);
@@ -3798,7 +3803,7 @@ function sk2Status(){
   const hint = document.getElementById('sk2-hint'); if(!hint) return;
   const tips = {
     draw: S.plan.shapes.length ? 'Draw more walls (one line at a time works too), or TAP a wall to measure it' : 'Draw a room with your finger — in one go or one wall at a time',
-    select:'Tap a wall, room or item · drag items to move · drag the background to pan · pinch to zoom',
+    select:'Drag a corner (blue circle) to move it · tap a wall, room or item · drag items to move · drag the background to pan',
     area: S.multi ? 'Drag a box to add more · tap a wall to add/remove it · drag inside the dashed outline to move · tap empty space to unselect' : 'Drag a box across the walls you want — only the walls it crosses get picked · two fingers to pan/zoom',
     multi: S.multi ? 'Tap walls, rooms or items to add/remove them · drag inside the dashed outline to move' : 'Tap walls one by one to pick them (tap a room to pick all its walls) · drag to pan',
     door:'Tap on a wall to add a door', window:'Tap on a wall to add a window', box:'Drag to draw a box any size — or tap for a standard one',
@@ -3879,6 +3884,14 @@ function sk2Down(e){
   if(S.tool==='draw' && !S.readOnly){ S.stroke = [sk2S2W(p)]; return; }
   if(S.tool==='box' && !S.readOnly){ const w0 = sk2S2W(p); S.boxDraw = { a:w0, b:w0 }; return; }
   if(S.tool==='select' && !S.readOnly){
+    // a corner right under the finger?
+    let best = null;
+    S.plan.shapes.forEach(sh=>sh.pts.forEach((q,k)=>{ const sq = sk2W2S(q), d = sk2V.dist(sq, p); if(d <= 18 && (!best || d < best.d)) best = {d, sh, k, q}; }));
+    if(best){
+      const group = [];
+      S.plan.shapes.forEach(sh=>sh.pts.forEach((q,k)=>{ if(sk2V.dist(q, best.q) < 0.75) group.push({sh, k}); }));
+      S.drag = { corner:true, group, start:{x:best.q.x, y:best.q.y}, pushed:false }; return;
+    }
     const h = sk2Hit(p);
     if(h && (h.kind==='box' || h.kind==='column' || h.kind==='note' || h.kind==='opening')){
       S.drag = { hit:h, start:sk2S2W(p), pushed:false }; return;
@@ -3905,6 +3918,26 @@ function sk2Move(e){
     if(!S.drag.pushed){ sk2Push(); S.drag.pushed = true; }
     const w = sk2S2W(p), d = sk2V.sub(w, S.drag.start); S.drag.start = w;
     sk2MoveSet(S.plan, S.multi, d); S.dirty = true; sk2Draw(); return;
+  }
+  if(S.drag && S.drag.corner){
+    if(!S.down || !S.down.moved) return;
+    if(!S.drag.pushed){ sk2Push(); S.drag.pushed = true; }
+    let w = sk2S2W(p);
+    // snap into line with the corners next to it (keeps walls straight / square)
+    const inGroup = (sh, k)=> S.drag.group.some(g=>g.sh===sh && g.k===k), tol = 9/S.view.s;
+    let bx = null, by = null;
+    S.drag.group.forEach(({sh, k})=>{ const n = sh.pts.length;
+      [k-1, k+1].forEach(j=>{ if(!sh.closed && (j < 0 || j >= n)) return; j = (j+n)%n; if(inGroup(sh, j)) return; const q = sh.pts[j];
+        if(Math.abs(w.x - q.x) < tol && (bx===null || Math.abs(w.x-q.x) < Math.abs(w.x-bx))) bx = q.x;
+        if(Math.abs(w.y - q.y) < tol && (by===null || Math.abs(w.y-q.y) < Math.abs(w.y-by))) by = q.y; }); });
+    if(bx!==null) w.x = bx; if(by!==null) w.y = by;
+    S.drag.group.forEach(({sh, k})=>{ sh.pts[k] = {x:w.x, y:w.y}; });
+    S.dirty = true; sk2Draw();
+    // live: how long the walls on each side are now (as drawn)
+    const g0 = S.drag.group[0], sh0 = g0.sh, n0 = sk2SegCount(sh0), parts = [];
+    [g0.k-1, g0.k].forEach(i=>{ if(sh0.closed) i = (i + n0) % n0; if(i < 0 || i >= n0) return; parts.push(sk2Fmt(sk2SegLen(sh0, i))); });
+    const hint = document.getElementById('sk2-hint'); if(hint) hint.textContent = 'Moving corner — walls now '+parts.join(' and ')+' (as drawn)'+((bx!==null||by!==null) ? ' · lined up' : '');
+    return;
   }
   if(S.drag && S.drag.resize){
     const b = S.plan.boxes.find(x=>x.id===S.drag.resize); if(!b) return;
@@ -3968,6 +4001,10 @@ function sk2Up(e){
     const stroke = S.stroke; S.stroke = null;
     if(tap || stroke.length < 3){ sk2Select(sk2Hit(p)); return; }    // a tap while drawing selects (draw a room, then tap a wall to measure it)
     sk2AddStroke(stroke); return;
+  }
+  if(S.drag && S.drag.corner){
+    const moved = S.drag.pushed; S.drag = null;
+    if(moved){ sk2Draw(); sk2Panel(); sk2Status(); const red = sk2RedCount(S.plan); sk2Toast('Corner moved'+(red ? ' — '+red+' measurement'+(red===1?' doesn\'t':'s don\'t')+' match the drawing now (red). Your numbers didn\'t change.' : '')+' ↶ Undo puts it back.'); return; }
   }
   if(S.drag && S.drag.hit && !tap){ S.drag = null; sk2Panel(); return; }
   S.drag = null;
@@ -11409,6 +11446,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-d</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-e</div>
 </body>
 </html>
