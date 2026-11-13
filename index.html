@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.13-a';
+const APP_VERSION = 'v2026.11.13-b';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -2971,6 +2971,63 @@ function sk2SetLength(plan, sh, i, L, opts){
   // walls measured earlier that no longer match (only possible when the numbers disagree)
   return res;
 }
+/* 📐 STRAIGHTEN UP — squares up hand-drawn walls and fits the plan to the measurements.
+   Your measurements are never changed. Walls you locked (🔒) keep their angle. Walls not measured yet take up the difference.
+   Rooms that were touching stay attached; things inside a room move with it. */
+function sk2RedCount(plan){ let n = 0; plan.shapes.forEach(sh=>{ for(let i=0;i<sk2SegCount(sh);i++) if(sk2MeasureStatus(sh,i)==='off') n++; }); return n; }
+function sk2StraightenUp(plan){
+  const oldOf = new Map(plan.shapes.map(sh=>[sh.id, sh.pts.map(p=>({x:p.x, y:p.y}))]));
+  const touches = (A, B)=> A.some(p=>B.some(q=>sk2V.dist(p,q) < 0.75));
+  const rem = plan.shapes.filter(sh=>sh.pts.length >= 2).sort((a,b)=>Object.keys(b.meas||{}).length - Object.keys(a.meas||{}).length);
+  const order = [];
+  while(rem.length){ let i = rem.findIndex(sh=>order.some(o=>touches(oldOf.get(o.id), oldOf.get(sh.id)))); if(i < 0) i = 0; order.push(rem.splice(i,1)[0]); }
+  const solved = []; let skipped = 0;
+  const moveOf = new Map();   // shape id → how its middle moved (for things inside it)
+  for(const sh of order){
+    const old = oldOf.get(sh.id), n = sk2SegCount(sh);
+    const dirs = [], t = [], w = [];
+    for(let k=0;k<n;k++){
+      const a = old[k], b = old[(k+1)%old.length], L = sk2V.dist(a,b);
+      let ang = Math.atan2(b.y-a.y, b.x-a.x); if(!(sh.lock && sh.lock[k])) ang = sk2SnapAngle(ang);
+      dirs.push({x:Math.cos(ang), y:Math.sin(ang)});
+      const m = sh.meas && sh.meas[k]; t.push(m!=null ? m : L); w.push(m!=null ? 1e4 : 1);
+    }
+    let l = t.slice();
+    if(sh.closed && n >= 3){
+      // closest lengths to the targets that still close the room (measured walls weigh 10,000× more, so the unmeasured ones give)
+      let a00=0, a01=0, a11=0, r0=0, r1=0;
+      for(let k=0;k<n;k++){ const d = dirs[k], iw = 1/w[k]; a00 += d.x*d.x*iw; a01 += d.x*d.y*iw; a11 += d.y*d.y*iw; r0 += d.x*t[k]; r1 += d.y*t[k]; }
+      const det = a00*a11 - a01*a01;
+      if(Math.abs(det) > 1e-12){ const l0 = (a11*r0 - a01*r1)/det, l1 = (-a01*r0 + a00*r1)/det; l = t.map((tk,k)=> tk - (dirs[k].x*l0 + dirs[k].y*l1)/w[k]); }
+      if(l.some(x=>!(x > 0.5))){ skipped++; solved.push({old, neu:old}); continue; }   // would flip a wall — leave this room as it is
+    }
+    const pts = [{x:0, y:0}];
+    for(let k=0;k<n-(sh.closed?1:0);k++) pts.push(sk2V.add(pts[k], sk2V.mul(dirs[k], l[k])));
+    // keep it attached: a corner that sat on a room already done goes to where that room's corner/wall went
+    let shift = null;
+    for(let j=0;j<old.length && !shift;j++){
+      for(const s2 of solved){
+        const q = s2.old.findIndex(p=>sk2V.dist(p, old[j]) < 0.75);
+        if(q >= 0){ shift = sk2V.sub(s2.neu[q], pts[j]); break; }
+        for(let k=0;k<s2.old.length && !shift;k++){
+          const a = s2.old[k], b = s2.old[(k+1)%s2.old.length]; if(!s2.closed && k===s2.old.length-1) break;
+          const r = sk2PointSegDist(old[j], a, b);
+          if(r.d < 0.75){ const na = s2.neu[k], nb = s2.neu[(k+1)%s2.neu.length]; shift = sk2V.sub({x:na.x+(nb.x-na.x)*r.t, y:na.y+(nb.y-na.y)*r.t}, pts[j]); }
+        }
+        if(shift) break;
+      }
+    }
+    const avg = (A)=> A.reduce((acc,p)=>({x:acc.x+p.x/A.length, y:acc.y+p.y/A.length}), {x:0,y:0});
+    if(!shift) shift = sk2V.sub(avg(old), avg(pts));     // on its own: stays where it was drawn
+    sh.pts = pts.map(p=>sk2V.add(p, shift));
+    moveOf.set(sh.id, sk2V.sub(avg(sh.pts), avg(old)));
+    solved.push({old, neu:sh.pts, closed:sh.closed});
+  }
+  // boxes, notes and free-standing columns move with the room they sit in
+  const inside = (p)=>{ let best = null, ba = Infinity; plan.shapes.forEach(sh=>{ if(!sh.closed) return; const o = oldOf.get(sh.id); if(sk2PointInPoly(p, o)){ const ar = Math.abs(o.reduce((s0,q,i)=>{ const r2 = o[(i+1)%o.length]; return s0 + q.x*r2.y - r2.x*q.y; }, 0)); if(ar < ba){ ba = ar; best = sh; } } }); return best; };
+  plan.boxes.concat(plan.notes, plan.columns.filter(c=>!c.sid)).forEach(it=>{ const sh = inside(it); const d = sh && moveOf.get(sh.id); if(d){ it.x += d.x; it.y += d.y; } });
+  return { skipped, red: sk2RedCount(plan) };
+}
 function sk2MeasureStatus(sh, i){
   const m = sh.meas && sh.meas[i]; if(m==null) return 'est';
   return Math.abs(sk2SegLen(sh,i) - m) < 0.15 ? 'ok' : 'off';
@@ -3042,6 +3099,7 @@ function sk2Anchors(plan, shapes){
     columns: plan.columns.filter(c=>c.sid && ids.includes(c.sid)).map(c=>({c, p:at(c.sid, c.seg, c.t)})),
     dims: (plan.dims||[]).flatMap(d=>['a','b'].filter(k=>ids.includes(d[k].sid)).map(k=>({ref:d[k], d, p:at(d[k].sid, d[k].seg, d[k].t)}))),
     meas: shapes.flatMap(sh=>Object.keys(sh.meas||{}).map(k=>{ const [a,b] = sk2SegEnds(sh, +k); return {a:{...a}, b:{...b}, L:sh.meas[k]}; })),
+    locks: shapes.flatMap(sh=>Object.keys(sh.lock||{}).filter(k=>sh.lock[k] && +k < sk2SegCount(sh)).map(k=>{ const [a,b] = sk2SegEnds(sh, +k); return {a:{...a}, b:{...b}}; })),
   };
 }
 function sk2Reattach(plan, sh, keep){ return sk2ReattachMulti(plan, [sh], keep); }
@@ -3056,6 +3114,8 @@ function sk2ReattachMulti(plan, shapes, keep){
   shapes.forEach(sh=>{
     sh.meas = {};
     keep.meas.forEach(m=>{ for(let i=0;i<sk2SegCount(sh);i++){ const [a,b] = sk2SegEnds(sh,i); if((sk2V.dist(a,m.a)<0.6 && sk2V.dist(b,m.b)<0.6) || (sk2V.dist(a,m.b)<0.6 && sk2V.dist(b,m.a)<0.6)) sh.meas[i] = m.L; } });
+    sh.lock = {};
+    (keep.locks||[]).forEach(m=>{ for(let i=0;i<sk2SegCount(sh);i++){ const [a,b] = sk2SegEnds(sh,i); if((sk2V.dist(a,m.a)<0.6 && sk2V.dist(b,m.b)<0.6) || (sk2V.dist(a,m.b)<0.6 && sk2V.dist(b,m.a)<0.6)) sh.lock[i] = true; } });
   });
 }
 /* split one wall into two pieces (to measure it in parts) */
@@ -3409,6 +3469,7 @@ function sk2BuildDom(){
     <button class="sk2-btn" data-sk2="copy" title="Copy what's selected">⧉ Copy</button>
     <button class="sk2-btn" data-sk2="paste" title="Paste what you copied">📋 Paste</button>
     <button class="sk2-btn" data-sk2="clearall" title="Clear everything off the sketch">🗑 Clear all</button>`}
+    ${S.readOnly ? '' : `<button class="sk2-btn" data-sk2="straighten" title="Square up the walls and fit the plan to your measurements">📐 Straighten up</button>`}
     <button class="sk2-btn" data-sk2="fit">⤢ Fit</button>
     ${S.readOnly ? `<button class="sk2-btn primary" data-sk2="close">Close</button>` : `<button class="sk2-btn" data-sk2="cancel">Cancel</button><button class="sk2-btn primary" data-sk2="save">Save</button>`}
   </div>
@@ -3572,7 +3633,7 @@ function sk2Draw(target){
       const out = cen ? {x:-nrm.x, y:-nrm.y} : {x:-dir.y, y:dir.x};
       const lx = mid.x + out.x*(wallPx/2 + 11), ly = mid.y + out.y*(wallPx/2 + 11);
       let ang = Math.atan2(b.y-a.y, b.x-a.x); if(ang > Math.PI/2 || ang < -Math.PI/2) ang += Math.PI;
-      const txt = st==='est' ? sk2Fmt(len, true) : sk2Fmt(len);
+      const txt = (st==='est' ? sk2Fmt(len, true) : sk2Fmt(sh.meas[i])) + ((sh.lock && sh.lock[i]) ? ' 🔒' : '');
       if(view.s*len > 26){
         ctx.save(); ctx.translate(lx, ly); ctx.rotate(ang);
         ctx.font = (st==='est' ? 'italic 500 ' : '700 ') + (target ? 13 : 12.5) + 'px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -4449,12 +4510,13 @@ function sk2Panel(){
     const n = sk2SegCount(sh), len = sk2SegLen(sh, sel.seg), st = sk2MeasureStatus(sh, sel.seg);
     const done = Object.keys(sh.meas||{}).length;
     h = `<h3>Wall ${sel.seg+1} of ${n}</h3>
-      <div class="sk2-big" style="color:${st==='ok'?'#1d1a14':st==='off'?'#B3261E':'#8C8576'}">${st==='est' ? sk2Fmt(len,true) : sk2Fmt(len)}</div>
-      <div class="sub">${st==='est' ? 'Not measured yet (estimate from your drawing)' : st==='ok' ? '✓ Measured' : '⚠ Was measured at '+sk2Fmt(sh.meas[sel.seg])+' but the room could not close — re-check the walls'} · ${done}/${n} walls measured</div>
+      <div class="sk2-big" style="color:${st==='ok'?'#1d1a14':st==='off'?'#B3261E':'#8C8576'}">${st==='est' ? sk2Fmt(len,true) : sk2Fmt(sh.meas[sel.seg])}</div>
+      <div class="sub">${st==='est' ? 'Not measured yet (estimate from your drawing)' : st==='ok' ? '✓ Measured' : '⚠ Your measurement — the drawing doesn\'t match it yet (drawn '+sk2Fmt(len)+'). Tap <b>📐 Straighten up</b> at the top. Your number never changes unless you change it.'} · ${done}/${n} walls measured</div>
       ${tapeBox('wall')}${lenInput('sk2-len')}
       ${ro ? '' : `<div class="sk2-row"><button class="sk2-b" data-sk2p="prevwall">◀ Prev wall</button><button class="sk2-b" data-sk2p="nextwall">Next wall ▶</button></div>
       <div class="sk2-row"><button class="sk2-b" data-sk2p="adddoor">🚪 Add door</button><button class="sk2-b" data-sk2p="addwindow">🪟 Add window</button></div>
-      <div class="sk2-row"><button class="sk2-b" data-sk2p="split">✂️ Split this wall here</button></div>
+      <div class="sk2-row"><button class="sk2-b" data-sk2p="split">✂️ Split this wall here</button><button class="sk2-b ${(sh.lock && sh.lock[sel.seg]) ? 'main' : ''}" data-sk2p="lockangle">${(sh.lock && sh.lock[sel.seg]) ? '🔒 Angle kept — tap to unlock' : '🔒 Keep this wall\'s angle'}</button></div>
+      <div class="sub">🔒 Keep the angle for a wall that really is diagonal — 📐 Straighten up won't square it.</div>
       <div class="sub">Split a wall when you can only measure it in pieces — each piece gets its own measurement.</div>
       <div class="sk2-row">${sh.meas && sh.meas[sel.seg]!=null ? `<button class="sk2-b" data-sk2p="unmeasure">Clear measurement</button>` : ''}<button class="sk2-b warn" data-sk2p="delwall">Delete this wall</button><button class="sk2-b warn" data-sk2p="delshape">Delete all ${n} connected</button></div>`}`;
   } else if(sel && sel.kind==='room'){
@@ -4508,8 +4570,8 @@ function sk2Panel(){
     h += `
       <div class="sk2-row"><button class="sk2-b main" data-sk2p="mall">Select everything</button><button class="sk2-b" data-sk2p="mpaste">📋 Paste</button></div>`;
   } else {
-    const t = sk2Totals(plan);
-    h = `<h3>Totals</h3><div class="sk2-big">${t.sqft.toFixed(1)} sq ft</div><div class="sub">${t.lf.toFixed(1)} LF of walls (doors taken out)</div>
+    const t = sk2Totals(plan), red = ro ? 0 : sk2RedCount(plan);
+    h = `${red ? `<div class="sk2-tapebox" style="border-color:#B3261E;background:#FCEDEA;color:#7a1f16;"><b>${red} measurement${red===1?'':'s'} in red</b> — the drawing doesn't match ${red===1?'it':'them'} yet. Tap <b>📐 Straighten up</b> at the top. If ${red===1?'it stays':'they stay'} red after that, the numbers don't add up (like 16' on one side and 17' across from it) — re-measure ${red===1?'that wall':'those walls'}. Your numbers never change unless you change them.</div>` : ''}<h3>Totals</h3><div class="sk2-big">${t.sqft.toFixed(1)} sq ft</div><div class="sub">${t.lf.toFixed(1)} LF of walls (doors taken out)</div>
       ${t.rooms.length ? `<div class="sk2-list">${t.rooms.map(r=>`<div data-sk2p="openroom" data-rid="${r.id}"><span><b>${esc(r.name)}</b>${r.measured<r.walls?' <span style="color:#B8863A">(~)</span>':''}</span><span>${r.sqft.toFixed(1)} sq ft · ${r.lf.toFixed(1)} LF</span></div>`).join('')}</div>` : ''}
       ${ro ? '' : `<p class="sub" style="margin-top:12px;"><b>How it works</b><br>1. ✏️ Draw a room with your finger — rough is fine. Leave a gap where the door is.<br>2. Tap a wall, then measure it with the tape (or type it). The wall snaps to the size and the room adjusts. The next wall is picked for you.<br>3. Add 🚪 doors, 🪟 windows, ⬛ cabinets/appliances, ⬤ columns and 📝 notes.<br>4. Pinch to zoom, drag with 👆 Select to pan. Tap <b>Save</b> when done.</p>`}`;
   }
@@ -4546,6 +4608,7 @@ function sk2PanelAction(a, btn){
     }
     return;
   }
+  if(a==='lockangle'){ const sh = plan.shapes.find(x=>x.id===sel.sid); if(!sh) return; sk2Push(); sh.lock = sh.lock || {}; if(sh.lock[sel.seg]) delete sh.lock[sel.seg]; else sh.lock[sel.seg] = true; S.dirty = true; sk2Draw(); sk2Panel(); sk2Toast(sh.lock[sel.seg] ? '🔒 This wall keeps its angle when you straighten' : 'Unlocked — this wall gets squared up when you straighten'); return; }
   if(a==='calcset'){ S.calcSet = !S.calcSet; sk2Panel(); return; }
   if(a==='calcedit'){ const i = +btn.dataset.i; S.calcEdit = (S.calcEdit===i ? null : i); sk2Panel(); return; }
   if(a==='calcdel'){ const items = sk2CalcItems(), i = +btn.dataset.i; items.splice(i, 1); S.calcEdit = null; sk2SaveItems(); sk2Panel(); return; }
@@ -4603,6 +4666,14 @@ function sk2PanelAction(a, btn){
 function sk2TopAction(a){
   const S = STATE.sk2;
   if(a==='fit'){ sk2Fit(); sk2Draw(); return; }
+  if(a==='straighten'){
+    if(!S.plan.shapes.length){ sk2Toast('Draw some walls first'); return; }
+    sk2Push();
+    const r = sk2StraightenUp(S.plan); S.dirty = true; sk2Draw(); sk2Panel();
+    sk2Toast(r.red ? '📐 Straightened — '+r.red+' measurement'+(r.red===1?'':'s')+' still don\'t add up (in red). Re-check '+(r.red===1?'that wall':'those walls')+' — your numbers were not changed. ↶ Undo puts it back.'
+                   : '📐 Straightened'+(r.skipped ? ' (one room left as it was — check its measurements)' : ' — every measurement fits ✓')+'. ↶ Undo puts it back.');
+    return;
+  }
   if(a==='copy'){ sk2Copy(); return; }
   if(a==='paste'){ sk2Paste(); return; }
   if(a==='clearall'){
@@ -11258,6 +11329,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-a</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-b</div>
 </body>
 </html>
