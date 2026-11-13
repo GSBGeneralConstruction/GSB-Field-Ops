@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.13-j';
+const APP_VERSION = 'v2026.11.13-k';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -9440,7 +9440,22 @@ const STD_MATERIALS_V7 = [   // self-tapping, self-drilling (tek) and framing sc
  ['Screws & Fasteners','Collated Framing Screws #10 x 3" (strip)','box of 1000','screw'],
  ['Screws & Fasteners','Structural Framing Screws 5/16" x 4" (lag replacement)','box of 50','screw'],
 ];
-const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3', MAT_SEED_MARKER4 = 'std-seeded-v4', MAT_SEED_MARKER5 = 'std-seeded-v5', MAT_SEED_MARKER6 = 'std-seeded-v6', MAT_SEED_MARKER7 = 'std-seeded-v7';
+const STD_MATERIALS_V8 = [   // framing screws metal to metal
+ ['Screws & Fasteners','Framing Screws Metal to Metal #8 x 7/16" (wafer head, sharp point)','box of 1000','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #8 x 1/2" (pan head, sharp point)','box of 1000','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #8 x 1/2" (pan head, drill point)','box of 1000','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #8 x 1/2" (modified truss head, sharp point)','box of 1000','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #8 x 1/2" (modified truss head, drill point)','box of 1000','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #8 x 3/4" (pan head, drill point)','box of 1000','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #10 x 1/2" (pan head, drill point)','box of 500','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #10 x 3/4" (hex washer head, drill point)','box of 500','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #10 x 1" (hex washer head, drill point)','box of 500','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #12 x 3/4" (hex washer head, drill point)','box of 500','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #12 x 1" (hex washer head, drill point)','box of 250','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #8 x 1/2" Collated (strip)','box of 1000','screw'],
+ ['Screws & Fasteners','Framing Screws Metal to Metal #8 x 1/2" Pan Head (bulk)','box of 5000','screw'],
+];
+const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3', MAT_SEED_MARKER4 = 'std-seeded-v4', MAT_SEED_MARKER5 = 'std-seeded-v5', MAT_SEED_MARKER6 = 'std-seeded-v6', MAT_SEED_MARKER7 = 'std-seeded-v7', MAT_SEED_MARKER8 = 'std-seeded-v8';
 function matList(){ return DB.materials.filter(m=>!m.system); }
 /* Material picker for the Pricing Calculator: full scrolling list, or filtered while you type in the search box */
 function matOptionsHTML(selectedId, query){
@@ -9517,7 +9532,7 @@ function matThumbHTML(m, size){
 async function seedStandardMaterials(force){
   const have = new Set(DB.materials.map(m=>m.id));
   const offline = (typeof navigator!=='undefined' && navigator.onLine===false);
-  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2}, {marker:MAT_SEED_MARKER3, items:STD_MATERIALS_V3}, {marker:MAT_SEED_MARKER4, items:STD_MATERIALS_V4}, {marker:MAT_SEED_MARKER5, items:STD_MATERIALS_V5}, {marker:MAT_SEED_MARKER6, items:STD_MATERIALS_V6}, {marker:MAT_SEED_MARKER7, items:STD_MATERIALS_V7} ];
+  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2}, {marker:MAT_SEED_MARKER3, items:STD_MATERIALS_V3}, {marker:MAT_SEED_MARKER4, items:STD_MATERIALS_V4}, {marker:MAT_SEED_MARKER5, items:STD_MATERIALS_V5}, {marker:MAT_SEED_MARKER6, items:STD_MATERIALS_V6}, {marker:MAT_SEED_MARKER7, items:STD_MATERIALS_V7}, {marker:MAT_SEED_MARKER8, items:STD_MATERIALS_V8} ];
   const added = [];
   for(const bt of batches){
     if(!force){ if(have.has(bt.marker)) continue; if(offline) continue; }   // never seed from an empty offline cache
@@ -11660,6 +11675,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-j</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-k</div>
 </body>
 </html>
