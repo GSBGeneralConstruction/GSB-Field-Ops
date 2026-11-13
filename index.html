@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.13-c';
+const APP_VERSION = 'v2026.11.13-d';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3099,6 +3099,7 @@ function sk2Anchors(plan, shapes){
     columns: plan.columns.filter(c=>c.sid && ids.includes(c.sid)).map(c=>({c, p:at(c.sid, c.seg, c.t)})),
     dims: (plan.dims||[]).flatMap(d=>['a','b'].filter(k=>ids.includes(d[k].sid)).map(k=>({ref:d[k], d, p:at(d[k].sid, d[k].seg, d[k].t)}))),
     meas: shapes.flatMap(sh=>Object.keys(sh.meas||{}).map(k=>{ const [a,b] = sk2SegEnds(sh, +k); return {a:{...a}, b:{...b}, L:sh.meas[k]}; })),
+    colors: shapes.flatMap(sh=>Object.keys(sh.wcol||{}).filter(k=>sh.wcol[k] && +k < sk2SegCount(sh)).map(k=>{ const [a,b] = sk2SegEnds(sh, +k); return {a:{...a}, b:{...b}, k:sh.wcol[k]}; })),
     locks: shapes.flatMap(sh=>Object.keys(sh.lock||{}).filter(k=>sh.lock[k] && +k < sk2SegCount(sh)).map(k=>{ const [a,b] = sk2SegEnds(sh, +k); return {a:{...a}, b:{...b}}; })),
   };
 }
@@ -3125,6 +3126,10 @@ function sk2ReattachMulti(plan, shapes, keep){
         if(Math.abs(l - ml) > Math.max(6, ml*0.15)) continue;                                                // about the same length
         const dist = sk2V.dist({x:(a.x+b.x)/2, y:(a.y+b.y)/2}, mm); if(dist < Math.max(12, ml*0.5) && dist < bd){ bd = dist; best = i; } }
       if(best >= 0){ sh.meas[best] = m.L; m._used = true; } });
+    sh.wcol = {};
+    (keep.colors||[]).forEach(m=>{ for(let i=0;i<sk2SegCount(sh);i++){ const [a,b] = sk2SegEnds(sh,i);
+      if((sk2V.dist(a,m.a)<0.6 && sk2V.dist(b,m.b)<0.6) || (sk2V.dist(a,m.b)<0.6 && sk2V.dist(b,m.a)<0.6)){ sh.wcol[i] = m.k; continue; }
+      const r1 = sk2PointSegDist(a, m.a, m.b), r2 = sk2PointSegDist(b, m.a, m.b); if(r1.d < 0.6 && r2.d < 0.6) sh.wcol[i] = m.k; } });   // a piece of a split wall keeps its color
     sh.lock = {};
     (keep.locks||[]).forEach(m=>{ for(let i=0;i<sk2SegCount(sh);i++){ const [a,b] = sk2SegEnds(sh,i); if((sk2V.dist(a,m.a)<0.6 && sk2V.dist(b,m.b)<0.6) || (sk2V.dist(a,m.b)<0.6 && sk2V.dist(b,m.a)<0.6)) sh.lock[i] = true; } });
   });
@@ -3319,6 +3324,30 @@ function sk2Area(sh){
 }
 function sk2DoorWidthOn(plan, sh, seg){ return plan.openings.filter(o=>o.sid===sh.id && (seg==null || o.seg===seg) && o.type!=='window').reduce((s,o)=>s+o.w, 0); }
 function sk2ShapeLF(plan, sh){ let t = 0; for(let i=0;i<sk2SegCount(sh);i++) t += sk2SegLen(sh,i); return Math.max(0, t - sk2DoorWidthOn(plan, sh)); }
+/* ---- wall colors: mark what a wall is (demo, new, half wall…). Each sketch can rename what a color means. ---- */
+const SK2_WALL_COLORS = [
+  { k:'black',  c:'#2A261E', def:'Existing' },
+  { k:'red',    c:'#C62828', def:'Demolish / remove' },
+  { k:'green',  c:'#2E7D32', def:'New wall' },
+  { k:'orange', c:'#EF6C00', def:'Half wall / pony wall' },
+  { k:'purple', c:'#7B1FA2', def:'Glass / shower wall' },
+  { k:'teal',   c:'#00838F', def:'Plumbing wall' },
+  { k:'brown',  c:'#8D6E63', def:'Cabinet wall' },
+  { k:'gray',   c:'#9E9E9E', def:'Other' },
+];
+function sk2ColorOf(k){ return SK2_WALL_COLORS.find(x=>x.k===k) || SK2_WALL_COLORS[0]; }
+function sk2WallColorKey(sh, i){ return (sh.wcol && sh.wcol[i]) || 'black'; }
+function sk2ColorName(plan, k){ return (plan.colorNames && plan.colorNames[k]) || sk2ColorOf(k).def; }
+/* linear feet of wall per color (doors left out) */
+function sk2ColorLF(plan){
+  const out = {};
+  plan.shapes.forEach(sh=>{ for(let i=0;i<sk2SegCount(sh);i++){ const k = sk2WallColorKey(sh, i); out[k] = (out[k]||0) + Math.max(0, sk2SegLen(sh, i) - sk2DoorWidthOn(plan, sh, i))/12; } });
+  return out;
+}
+function sk2ColorUsed(plan){ const u = new Set(); plan.shapes.forEach(sh=>{ for(let i=0;i<sk2SegCount(sh);i++) u.add(sk2WallColorKey(sh, i)); }); return SK2_WALL_COLORS.filter(x=>u.has(x.k)); }
+function sk2ColorPickerHTML(cur, action){
+  return `<div class="sk2-colors">${SK2_WALL_COLORS.map(x=>`<button type="button" class="sk2-swatch ${cur===x.k?'on':''}" data-sk2p="${action}" data-k="${x.k}" title="${esc(sk2ColorName(STATE.sk2.plan, x.k))}"><span style="background:${x.c}"></span>${esc(sk2ColorName(STATE.sk2.plan, x.k))}</button>`).join('')}</div>`;
+}
 function sk2Totals(plan){
   const rooms = sk2SyncRooms(plan).map(r=>{
     const f = r._f, srcs = new Set(f.edges.map(e=>e.sid+':'+e.seg));
@@ -3453,6 +3482,11 @@ function sk2BuildDom(){
     #sk2-root .sk2-item .acts{display:flex;gap:6px;margin-top:6px;}
     #sk2-root .sk2-item .acts button{background:none;border:0;padding:3px 0;margin-right:10px;font:600 12px Inter,sans-serif;color:#7A6A45;cursor:pointer;}
     #sk2-root .sk2-find{margin-top:10px;}
+    #sk2-root .sk2-colors{display:grid;grid-template-columns:1fr 1fr;gap:5px;}
+    #sk2-root .sk2-swatch{display:flex;align-items:center;gap:7px;padding:7px 8px;border:1.5px solid #E1D8C2;border-radius:8px;background:#fff;font:600 11.5px Inter,sans-serif;color:#2A261E;cursor:pointer;text-align:left;line-height:1.2;}
+    #sk2-root .sk2-swatch span{flex:none;width:22px;height:8px;border-radius:3px;}
+    #sk2-root .sk2-swatch.on{border-color:#1F6FD1;background:#EEF4FC;}
+    #sk2-root .sk2-dot{display:inline-block;width:16px;height:6px;border-radius:3px;margin-right:7px;vertical-align:2px;}
     #sk2-root .sk2-addmat{width:100%;padding:12px;border:1.5px dashed #7A6A45;border-radius:9px;background:#FBFAF6;font:600 13.5px Inter,sans-serif;color:#4a3f27;cursor:pointer;text-align:left;}
     #sk2-root .sk2-send{background:#F1F7F2;border:1px solid #CFE3D4;border-radius:9px;padding:9px;margin:12px 0 6px;}
     #sk2-root .sk2-send .sk2-b.main{background:#3F7D4F;border-color:#3F7D4F;}
@@ -3612,7 +3646,7 @@ function sk2Draw(target){
       ops.forEach(x=>{ if(x.t0 > t) pieces.push([t, x.t0]); t = Math.max(t, x.t1); }); if(t < 1) pieces.push([t,1]);
       const isSel = (sel && sel.kind==='wall' && sel.sid===sh.id && sel.seg===i) || inSeg(sh.id, i);
       const isPick = S.picks.some(p=>p.sid===sh.id && p.seg===i) || (!target && S.dimStart && S.dimStart.sid===sh.id && S.dimStart.seg===i);
-      ctx.lineCap = 'square'; ctx.lineWidth = wallPx; ctx.strokeStyle = isSel ? '#1F6FD1' : isPick ? '#D9822B' : '#2A261E';
+      ctx.lineCap = 'square'; ctx.lineWidth = wallPx; ctx.strokeStyle = isSel ? '#1F6FD1' : isPick ? '#D9822B' : sk2ColorOf(sk2WallColorKey(sh, i)).c;
       pieces.forEach(([u,v])=>{ const p = at(u), q = at(v); ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(q.x,q.y); ctx.stroke(); });
       // doors & windows
       const dir = sk2V.norm(sk2V.sub(b,a));
@@ -3746,6 +3780,16 @@ function sk2Draw(target){
     ctx.strokeStyle = '#1F6FD1'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.beginPath();
     S.stroke.forEach((p,i)=>{ const q = W2S(p); i ? ctx.lineTo(q.x,q.y) : ctx.moveTo(q.x,q.y); }); ctx.stroke();
   }
+  // color key
+  { const used = sk2ColorUsed(plan);
+    if(used.length > 1 || (used.length===1 && used[0].k!=='black')){
+      const lf = sk2ColorLF(plan), rows = used.map(x=>({ c:x.c, t:sk2ColorName(plan, x.k)+' — '+lf[x.k].toFixed(1)+' LF' }));
+      ctx.font = '600 12px Inter, sans-serif'; const w = Math.max(...rows.map(r=>ctx.measureText(r.t).width)) + 38, h = rows.length*18 + 12;
+      const x0 = 10, y0 = CH - h - (target ? 62 : 12);
+      ctx.fillStyle = 'rgba(255,255,255,0.94)'; ctx.strokeStyle = '#D6CEB9'; ctx.lineWidth = 1; ctx.fillRect(x0, y0, w, h); ctx.strokeRect(x0, y0, w, h);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      rows.forEach((r,j)=>{ const y = y0 + 12 + j*18; ctx.fillStyle = r.c; ctx.fillRect(x0+8, y-3, 20, 6); ctx.fillStyle = '#2A261E'; ctx.fillText(r.t, x0+34, y); });
+    } }
   if(!target) sk2Status();
 }
 function sk2Status(){
@@ -4171,7 +4215,7 @@ function sk2Copy(){
       const run = []; let i = st; while(on(i) && run.length < n){ run.push(i); i = sh.closed ? (i+1)%n : i+1; if(!sh.closed && i>=n) break; }
       const pts = [sh.pts[run[0]]].concat(run.map(k=>sh.pts[(k+1)%sh.pts.length])).map(p=>({x:p.x, y:p.y}));
       const c = { id:sk2Uid(), pts, closed:false, name:'', meas:{} };
-      run.forEach((k,j)=>{ map[sh.id+':'+k] = [c.id, j]; if(sh.meas && sh.meas[k]!=null) c.meas[j] = sh.meas[k]; });
+      run.forEach((k,j)=>{ map[sh.id+':'+k] = [c.id, j]; if(sh.meas && sh.meas[k]!=null) c.meas[j] = sh.meas[k]; if(sh.wcol && sh.wcol[k]){ c.wcol = c.wcol || {}; c.wcol[j] = sh.wcol[k]; } });
       shapes.push(c);
     });
   });
@@ -4522,6 +4566,7 @@ function sk2Panel(){
     h = `<h3>${S.tool==='multi'?'☑️':'⬚'} ${n} selected</h3><p class="sub">${parts}<br>Tap a wall or item to add or remove it. Drag inside the dashed outline to move them together.</p>
       <div class="sk2-row"><button class="sk2-b main" data-sk2p="mcopy">⧉ Copy</button><button class="sk2-b" data-sk2p="mpaste">📋 Paste</button></div>
       <div class="sk2-row"><button class="sk2-b" data-sk2p="mall">Select everything</button><button class="sk2-b" data-sk2p="mnone">Unselect</button></div>
+      ${m.segs.length ? `<div class="sk2-field" style="margin-top:6px;"><label>Color all ${m.segs.length} selected wall${m.segs.length===1?'':'s'}</label>${sk2ColorPickerHTML((()=>{ const ks = new Set(m.segs.map(q=>{ const sh = plan.shapes.find(x=>x.id===q.sid); return sh ? sk2WallColorKey(sh, q.seg) : 'black'; })); return ks.size===1 ? [...ks][0] : ''; })(), 'multicolor')}</div>` : ''}
       <div class="sk2-row"><button class="sk2-b warn" data-sk2p="mdel">🗑 Delete selected</button></div>
       ${sk2CalcHTML(plan, m)}`;
   } else if(S.tool==='pick' && !ro){
@@ -4539,6 +4584,7 @@ function sk2Panel(){
       ${tapeBox('wall')}${lenInput('sk2-len')}
       ${ro ? '' : `<div class="sk2-row"><button class="sk2-b" data-sk2p="prevwall">◀ Prev wall</button><button class="sk2-b" data-sk2p="nextwall">Next wall ▶</button></div>
       <div class="sk2-row"><button class="sk2-b" data-sk2p="adddoor">🚪 Add door</button><button class="sk2-b" data-sk2p="addwindow">🪟 Add window</button></div>
+      <div class="sk2-field" style="margin-top:10px;"><label>Wall color — what this wall is</label>${sk2ColorPickerHTML(sk2WallColorKey(sh, sel.seg), 'wallcolor')}</div>
       <div class="sk2-row"><button class="sk2-b" data-sk2p="split">✂️ Split this wall here</button><button class="sk2-b ${(sh.lock && sh.lock[sel.seg]) ? 'main' : ''}" data-sk2p="lockangle">${(sh.lock && sh.lock[sel.seg]) ? '🔒 Angle kept — tap to unlock' : '🔒 Keep this wall\'s angle'}</button></div>
       <div class="sub">🔒 Keep the angle for a wall that really is diagonal — 📐 Straighten up won't square it.</div>
       <div class="sub">Split a wall when you can only measure it in pieces — each piece gets its own measurement.</div>
@@ -4596,6 +4642,9 @@ function sk2Panel(){
   } else {
     const t = sk2Totals(plan), red = ro ? 0 : sk2RedCount(plan);
     h = `${red ? `<div class="sk2-tapebox" style="border-color:#B3261E;background:#FCEDEA;color:#7a1f16;"><b>${red} measurement${red===1?'':'s'} in red</b> — the drawing doesn't match ${red===1?'it':'them'} yet. Tap <b>📐 Straighten up</b> at the top. If ${red===1?'it stays':'they stay'} red after that, the numbers don't add up (like 16' on one side and 17' across from it) — re-measure ${red===1?'that wall':'those walls'}. Your numbers never change unless you change them.</div>` : ''}<h3>Totals</h3><div class="sk2-big">${t.sqft.toFixed(1)} sq ft</div><div class="sub">${t.lf.toFixed(1)} LF of walls (doors taken out)</div>
+      ${(()=>{ const used = sk2ColorUsed(plan); if(!(used.length > 1 || (used.length===1 && used[0].k!=='black'))) return ''; const lf = sk2ColorLF(plan);
+        return `<div class="sk2-field" style="margin-top:10px;"><label>Walls by color</label><div class="sk2-list">${used.map(x=>`<div style="cursor:default;"><span><span class="sk2-dot" style="background:${x.c}"></span>${esc(sk2ColorName(plan, x.k))}</span><span>${lf[x.k].toFixed(1)} LF</span></div>`).join('')}</div>
+          ${ro ? '' : `<button class="sk2-b" style="margin-top:6px;" data-sk2p="colornames">✏️ Change what the colors mean</button>`}</div>`; })()}
       ${t.rooms.length ? `<div class="sk2-list">${t.rooms.map(r=>`<div data-sk2p="openroom" data-rid="${r.id}"><span><b>${esc(r.name)}</b>${r.measured<r.walls?' <span style="color:#B8863A">(~)</span>':''}</span><span>${r.sqft.toFixed(1)} sq ft · ${r.lf.toFixed(1)} LF</span></div>`).join('')}</div>` : ''}
       ${ro ? '' : `<p class="sub" style="margin-top:12px;"><b>How it works</b><br>1. ✏️ Draw a room with your finger — rough is fine. Leave a gap where the door is.<br>2. Tap a wall, then measure it with the tape (or type it). The wall snaps to the size and the room adjusts. The next wall is picked for you.<br>3. Add 🚪 doors, 🪟 windows, ⬛ cabinets/appliances, ⬤ columns and 📝 notes.<br>4. Pinch to zoom, drag with 👆 Select to pan. Tap <b>Save</b> when done.</p>`}`;
   }
@@ -4631,6 +4680,13 @@ function sk2PanelAction(a, btn){
       sk2Toast('✓ Saved with this sketch — the items go on the Pricing Calculator when you open it for this job. Tap Save on the sketch.');
     }
     return;
+  }
+  if(a==='wallcolor'){ const sh = plan.shapes.find(x=>x.id===sel.sid); if(!sh) return; sk2Push(); sh.wcol = sh.wcol || {}; if(btn.dataset.k==='black') delete sh.wcol[sel.seg]; else sh.wcol[sel.seg] = btn.dataset.k; S.dirty = true; sk2Draw(); sk2Panel(); sk2Toast('Wall marked: '+sk2ColorName(plan, btn.dataset.k)); return; }
+  if(a==='multicolor'){ const m = S.multi; if(!m) return; sk2Push(); m.segs.forEach(q=>{ const sh = plan.shapes.find(x=>x.id===q.sid); if(!sh) return; sh.wcol = sh.wcol || {}; if(btn.dataset.k==='black') delete sh.wcol[q.seg]; else sh.wcol[q.seg] = btn.dataset.k; }); S.dirty = true; sk2Draw(); sk2Panel(); sk2Toast(m.segs.length+' wall'+(m.segs.length===1?'':'s')+' marked: '+sk2ColorName(plan, btn.dataset.k)); return; }
+  if(a==='colornames'){
+    plan.colorNames = plan.colorNames || {};
+    for(const x of sk2ColorUsed(plan)){ const v = prompt('What does '+x.k.toUpperCase()+' mean on this sketch?', sk2ColorName(plan, x.k)); if(v===null) break; if(v.trim()) plan.colorNames[x.k] = v.trim(); }
+    S.dirty = true; sk2Draw(); sk2Panel(); return;
   }
   if(a==='lockangle'){ const sh = plan.shapes.find(x=>x.id===sel.sid); if(!sh) return; sk2Push(); sh.lock = sh.lock || {}; if(sh.lock[sel.seg]) delete sh.lock[sel.seg]; else sh.lock[sel.seg] = true; S.dirty = true; sk2Draw(); sk2Panel(); sk2Toast(sh.lock[sel.seg] ? '🔒 This wall keeps its angle when you straighten' : 'Unlocked — this wall gets squared up when you straighten'); return; }
   if(a==='calcset'){ S.calcSet = !S.calcSet; sk2Panel(); return; }
@@ -11353,6 +11409,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-c</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-d</div>
 </body>
 </html>
