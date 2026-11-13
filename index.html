@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.13-e';
+const APP_VERSION = 'v2026.11.13-f';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3482,6 +3482,9 @@ function sk2BuildDom(){
     #sk2-root .sk2-item .acts{display:flex;gap:6px;margin-top:6px;}
     #sk2-root .sk2-item .acts button{background:none;border:0;padding:3px 0;margin-right:10px;font:600 12px Inter,sans-serif;color:#7A6A45;cursor:pointer;}
     #sk2-root .sk2-find{margin-top:10px;}
+    #sk2-root .sk2-area{display:flex;gap:4px;margin-top:7px;}
+    #sk2-root .sk2-area button{flex:1;padding:6px 4px;border:1.5px solid #E1D8C2;border-radius:7px;background:#fff;font:600 11.5px Inter,sans-serif;color:#4a3f27;cursor:pointer;}
+    #sk2-root .sk2-area button.on{border-color:#7A6A45;background:#7A6A45;color:#fff;}
     #sk2-root .sk2-colors{display:grid;grid-template-columns:1fr 1fr;gap:5px;}
     #sk2-root .sk2-swatch{display:flex;align-items:center;gap:7px;padding:7px 8px;border:1.5px solid #E1D8C2;border-radius:8px;background:#fff;font:600 11.5px Inter,sans-serif;color:#2A261E;cursor:pointer;text-align:left;line-height:1.2;}
     #sk2-root .sk2-swatch span{flex:none;width:22px;height:8px;border-radius:3px;}
@@ -4314,12 +4317,12 @@ function sk2SaveItems(){ const S = STATE.sk2; S.dirty = true; }   // the list is
 /* how each kind of item is counted */
 const SK2_METHODS = {
   sheets:  { label:'Sheets on the walls',           p:'Sq ft per sheet' },
-  ceiling: { label:'Sheets on the ceiling',         p:'Sq ft per sheet' },
+  ceiling: { label:'Covers the ceiling',            p:'Sq ft covered by one (a 4×8 sheet = 32)' },
   studs:   { label:'Studs (uses stud spacing)',     p:'Length of one stud (ft)' },
   track:   { label:'Track / plates along the walls',p:'Length of one piece (ft)', p2:'Rows (2 = top+bottom, 3 = bottom + double top)' },
   wall:    { label:'Covers wall area',              p:'Sq ft covered by one' },
   cavity:  { label:'Fills the wall (insulation)',   p:'Sq ft covered by one' },
-  floor:   { label:'Covers floor area',             p:'Sq ft covered by one' },
+  floor:   { label:'Covers the floor',              p:'Sq ft covered by one (tile sold by the sq ft = 1)' },
   lf:      { label:'Runs along the walls',          p:'Feet in one piece' },
   perstud: { label:'So many per stud',              p:'How many per stud', p2:'How many in one box / pack' },
   anchors: { label:'Anchors along the bottom',      p:'Inches apart', p2:'How many in one box' },
@@ -4334,7 +4337,7 @@ function sk2GuessMethod(m){
   const lenFt = sk2Num(/(\d+(?:\.\d+)?)\s*(?:ft|')\b/, size, 8);
   const gal = sk2Num(/(\d+(?:\.\d+)?)\s*gal/, size, 0), lb = sk2Num(/(\d+(?:\.\d+)?)\s*lb/, size, 0);
   const boxOf = sk2Num(/(?:box of|pack of|of)\s*(\d+)/, size, sk2Num(/(\d+)\s*pack/, size, 0));
-  if(/ceiling tile/.test(t)) return { method:'floor', p:sheetA || 8 };
+  if(/ceiling tile|acoustical tile|drop ceiling/.test(t)) return { method:'ceiling', p:sheetA || 8 };
   if(/ceiling board|ceiling/.test(name) && /sheet/.test(size)) return { method:'ceiling', p:sheetA };
   if(/screw|nail|clip|bridging|hanger|anchor|pin|bolt|tie/.test(name)){
     if(/drywall screw|cement board screw|board screw/.test(name)) return { method:'wall', p: Math.round((lb||1)*300) };   // about 1 screw per sq ft, ~300 per lb
@@ -4383,13 +4386,13 @@ function sk2ItemQty(it, x){
   const needWalls = (r)=> x.walls ? r : { qty:0, how:'Select walls to count this' };
   switch(it.method){
     case 'sheets':  return needWalls({ qty: p ? up(x.wallSqft*w/p) : 0, how: sf(x.wallSqft)+' sq ft of wall ('+(x.sides==1?'1 side':'both sides')+') ÷ '+p+' sq ft a sheet'+pct });
-    case 'ceiling': return x.floor ? { qty: p ? up(x.floor*w/p) : 0, how: sf(x.floor)+' sq ft of ceiling ÷ '+p+' sq ft a sheet'+pct } : { qty:0, how:'Select a whole room to count the ceiling' };
+    case 'ceiling': return x.floor ? { qty: p ? up(x.floor*w/p) : 0, how: sf(x.floor)+' sq ft of ceiling ÷ '+sf(p)+' sq ft each'+pct } : { qty:0, how:'Needs a room: tap inside a room → 🧮 Materials for this room' };
     case 'studs': { const short = p && p*12 < x.H - 0.5 ? ' ⚠ '+p+' ft is shorter than the '+sk2Fmt(x.H)+' walls' : '';
       return needWalls({ qty: up(x.studs*w), how: 'One every '+x.sp+'" + the end of each wall + 2 at each door/window = '+x.studs+pct+short }); }
     case 'track': { const rows = p2 || 2, lf = (x.L*rows - x.doorW)/12; return needWalls({ qty: p ? up(lf*w/p) : 0, how: rows+' rows along '+(x.L/12).toFixed(1)+' LF (doors left open) = '+lf.toFixed(0)+' LF ÷ '+p+' ft pieces'+pct }); }
     case 'wall':    return needWalls({ qty: p ? up(x.wallSqft*w/p) : 0, how: sf(x.wallSqft)+' sq ft of wall ÷ '+sf(p)+' sq ft each'+pct });
     case 'cavity':  return needWalls({ qty: p ? up(x.oneSide*w/p) : 0, how: sf(x.oneSide)+' sq ft of wall (one side) ÷ '+sf(p)+' sq ft each'+pct });
-    case 'floor':   return x.floor ? { qty: p ? up(x.floor*w/p) : 0, how: sf(x.floor)+' sq ft of floor ÷ '+sf(p)+' sq ft each'+pct } : { qty:0, how:'Select a whole room to count the floor' };
+    case 'floor':   return x.floor ? { qty: p ? up(x.floor*w/p) : 0, how: sf(x.floor)+' sq ft of floor ÷ '+sf(p)+' sq ft each'+pct } : { qty:0, how:'Needs a room: tap inside a room → 🧮 Materials for this room' };
     case 'lf': { const lf = (x.L - x.doorW)/12*x.sides; return needWalls({ qty: p ? up(lf*w/p) : 0, how: lf.toFixed(0)+' LF ('+(x.sides==1?'1 side':'both sides')+', doors left out) ÷ '+p+' ft each'+pct }); }
     case 'perstud': { const n = up(x.studs*w)*p; return needWalls({ qty: p2 ? up(n/p2) : n, how: p+' per stud × '+up(x.studs*w)+' studs = '+n.toLocaleString()+(p2 ? ' ÷ '+p2.toLocaleString()+' a box' : '') }); }
     case 'anchors': { const n = up((x.L - x.doorW)/(p||24) + x.walls); return needWalls({ qty: p2 ? up(n/p2) : n, how: 'One every '+(p||24)+'" + one at each end = '+n+(p2 ? ' ÷ '+p2+' a box' : '') }); }
@@ -4410,7 +4413,7 @@ function sk2CalcHTML(plan, m){
   const c = sk2CalcSettings(), x = sk2CalcCtx(plan, m, c), items = sk2CalcItems(), S = STATE.sk2;
   if(!x.walls && !x.rooms.length) return `<div class="sk2-calc"><h4>🧮 How much material?</h4><p class="sub">Select walls or a room to count materials for them.</p></div>`;
   const opt = (v, cur, label)=>`<option value="${v}" ${String(v)===String(cur)?'selected':''}>${label}</option>`;
-  const facts = [x.walls ? `<b>${(x.L/12).toFixed(1)} LF</b> of wall` : '', x.walls ? `<b>${Math.round(x.wallSqft)}</b> sq ft to cover` : '', x.rooms.length ? `<b>${x.floor.toFixed(1)}</b> sq ft of floor` : ''].filter(Boolean).join(' · ');
+  const facts = [x.walls ? `<b>${(x.L/12).toFixed(1)} LF</b> of wall` : '', x.walls ? `<b>${Math.round(x.wallSqft)}</b> sq ft to cover` : '', x.rooms.length ? `<b>${x.floor.toFixed(1)}</b> sq ft of floor &amp; ceiling` : ''].filter(Boolean).join(' · ') + (!x.rooms.length && x.walls ? `<br><span style="font-size:11.5px;">Floor / ceiling: tap inside a room → 🧮 Materials for this room.</span>` : '');
   const settings = x.walls ? (S.calcSet ? `<div class="sk2-cgrid">
       <label>Wall height<input id="sk2c-h" value="${esc(sk2Fmt(c.h))}" autocomplete="off"></label>
       <label>Stud spacing (inches)<input id="sk2c-sp" type="number" inputmode="decimal" min="4" step="any" value="${c.sp}"></label>
@@ -4430,6 +4433,7 @@ function sk2CalcHTML(plan, m){
           ${def.p ? `<label>${esc(def.p)}<input type="number" inputmode="decimal" step="any" min="0" data-sk2c-p="${i}" value="${it.p ?? ''}"></label>` : ''}
           ${def.p2 ? `<label>${esc(def.p2)}<input type="number" inputmode="decimal" step="any" min="0" data-sk2c-p2="${i}" value="${it.p2 ?? ''}"></label>` : ''}
         </div>` : ''}
+      <div class="sk2-area">${[['walls','🧱 Walls'],['floor','⬜ Floor'],['ceiling','⬛ Ceiling']].map(([k,l])=>{ const cur = it.method==='floor' ? 'floor' : it.method==='ceiling' ? 'ceiling' : it.method==='manual' ? '' : 'walls'; return `<button type="button" class="${cur===k?'on':''}" data-sk2p="calcarea" data-i="${i}" data-area="${k}">${l}</button>`; }).join('')}</div>
       <div class="acts"><button type="button" data-sk2p="calcedit" data-i="${i}">${open ? '✓ Done' : '⚙ How it\'s counted'}</button><button type="button" data-sk2p="calcdel" data-i="${i}">✕ Remove</button></div>
     </div>`;
   }).join('');
@@ -4452,7 +4456,7 @@ function sk2JobRec(){ const c = STATE.sk2 && STATE.sk2.ctx; if(!c || !c.id || ![
 function sk2ExportLines(){
   const S = STATE.sk2, x = sk2CalcCtx(S.plan, S.multi||sk2EmptySet(), sk2CalcSettings());
   return sk2CalcItems().map(it=>{ const r = sk2ItemQty(it, x); if(!r.qty) return null;
-    const ut = (['floor','wall','cavity'].includes(it.method) && +it.p===1) ? 'SF' : (it.method==='lf' && +it.p===1) ? 'LF' : 'each';
+    const ut = (['floor','ceiling','wall','cavity'].includes(it.method) && +it.p===1) ? 'SF' : (it.method==='lf' && +it.p===1) ? 'LF' : 'each';
     return { materialId:it.mid, qty:r.qty, unitType:ut }; }).filter(Boolean);
 }
 function sk2SendHTML(){
@@ -4686,7 +4690,8 @@ function sk2Panel(){
       ${ro ? '' : `<p class="sub" style="margin-top:12px;"><b>How it works</b><br>1. ✏️ Draw a room with your finger — rough is fine. Leave a gap where the door is.<br>2. Tap a wall, then measure it with the tape (or type it). The wall snaps to the size and the room adjusts. The next wall is picked for you.<br>3. Add 🚪 doors, 🪟 windows, ⬛ cabinets/appliances, ⬤ columns and 📝 notes.<br>4. Pinch to zoom, drag with 👆 Select to pan. Tap <b>Save</b> when done.</p>`}`;
   }
   const _keepScroll = el.scrollTop;
-  if(!ro && !S.multi && sel && (sel.kind==='wall' || sel.kind==='room')) h += `<div class="sk2-row" style="margin-top:12px;"><button class="sk2-b" data-sk2p="calcsel">🧮 Materials for this ${sel.kind==='wall'?'wall':'room'} (drywall, studs…)</button></div>`;
+  if(!ro && !S.multi && sel && (sel.kind==='wall' || sel.kind==='room')) h += `<div class="sk2-row" style="margin-top:12px;"><button class="sk2-b ${sel.kind==='room'?'main':''}" data-sk2p="calcsel">🧮 Materials for this ${sel.kind==='wall'?'wall (drywall, studs…)':'room (walls, floor &amp; ceiling)'}</button></div>`;
+  if(!ro && !S.multi && !sel && S.tool!=='pick' && S.tool!=='area' && S.tool!=='multi' && plan.shapes.length) h = h.replace('<h3>Totals</h3>', `<div class="sk2-row" style="margin:0 0 10px;"><button class="sk2-b main" style="width:100%;" data-sk2p="calcall">🧮 Materials for the whole sketch (walls, floor &amp; ceiling)</button></div><h3>Totals</h3>`);
   el.innerHTML = h;
   if(S._panelKey === (S.multi ? 'multi' : sel ? sel.kind+(sel.id||sel.sid||sel.rid||'') : S.tool)) el.scrollTop = _keepScroll;
   S._panelKey = (S.multi ? 'multi' : sel ? sel.kind+(sel.id||sel.sid||sel.rid||'') : S.tool);
@@ -4727,8 +4732,22 @@ function sk2PanelAction(a, btn){
   }
   if(a==='lockangle'){ const sh = plan.shapes.find(x=>x.id===sel.sid); if(!sh) return; sk2Push(); sh.lock = sh.lock || {}; if(sh.lock[sel.seg]) delete sh.lock[sel.seg]; else sh.lock[sel.seg] = true; S.dirty = true; sk2Draw(); sk2Panel(); sk2Toast(sh.lock[sel.seg] ? '🔒 This wall keeps its angle when you straighten' : 'Unlocked — this wall gets squared up when you straighten'); return; }
   if(a==='calcset'){ S.calcSet = !S.calcSet; sk2Panel(); return; }
+  if(a==='calcarea'){
+    const items = sk2CalcItems(), it = items[+btn.dataset.i]; if(!it) return;
+    const mm = DB.materials.find(z=>z.id===it.mid), g = mm ? sk2GuessMethod(mm) : {};
+    const sheet = mm ? String((mm.size||'')+' '+(mm.name||'')).match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i) : null, sheetA = sheet ? (+sheet[1])*(+sheet[2]) : 0;
+    const areaP = ['sheets','wall','cavity','floor','ceiling'].includes(it.method) ? it.p : (sheetA || (/sq ?ft|sf/i.test(mm && mm.size || '') ? 1 : 1));
+    const area = btn.dataset.area;
+    if(area==='floor' || area==='ceiling'){ it.method = area; it.p = areaP; delete it.p2; }
+    else { if(['walls'].includes(area)){ if(g.method && !['floor','ceiling','manual'].includes(g.method)){ it.method = g.method; it.p = g.p; if(g.p2!=null) it.p2 = g.p2; } else { it.method = sheetA ? 'sheets' : 'wall'; it.p = areaP || 32; } } }
+    S.calcEdit = null; sk2SaveItems(); sk2Panel();
+    const x = sk2CalcCtx(S.plan, S.multi||sk2EmptySet(), sk2CalcSettings());
+    if((area==='floor' || area==='ceiling') && !x.rooms.length) sk2Toast('Counted on the '+area+' — tap inside a room and pick 🧮 Materials for this room to get its '+area+' area');
+    return;
+  }
   if(a==='calcedit'){ const i = +btn.dataset.i; S.calcEdit = (S.calcEdit===i ? null : i); sk2Panel(); return; }
   if(a==='calcdel'){ const items = sk2CalcItems(), i = +btn.dataset.i; items.splice(i, 1); S.calcEdit = null; sk2SaveItems(); sk2Panel(); return; }
+  if(a==='calcall'){ S.tool = 'multi'; sk2SelectAll(); return; }
   if(a==='calcsel'){ const m = sk2CurrentSet(); S.tool = 'multi'; sk2SetMulti(m); return; }
   if(a==='calccopy'){ const t = sk2CalcText(plan, S.multi||sk2EmptySet()); const done = ()=>sk2Toast('📄 Materials list copied — paste it into the estimate or a note');
     if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, ()=>{ prompt('Copy this list:', t); }); else prompt('Copy this list:', t); return; }
@@ -11446,6 +11465,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-e</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-f</div>
 </body>
 </html>
