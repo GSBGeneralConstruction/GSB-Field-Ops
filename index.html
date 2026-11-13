@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.13-b';
+const APP_VERSION = 'v2026.11.13-c';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3113,7 +3113,18 @@ function sk2ReattachMulti(plan, shapes, keep){
   plan.dims = (plan.dims||[]).filter(d=>!gone.dims.has(d));
   shapes.forEach(sh=>{
     sh.meas = {};
-    keep.meas.forEach(m=>{ for(let i=0;i<sk2SegCount(sh);i++){ const [a,b] = sk2SegEnds(sh,i); if((sk2V.dist(a,m.a)<0.6 && sk2V.dist(b,m.b)<0.6) || (sk2V.dist(a,m.b)<0.6 && sk2V.dist(b,m.a)<0.6)) sh.meas[i] = m.L; } });
+    keep.meas.forEach(m=>{ for(let i=0;i<sk2SegCount(sh);i++){ const [a,b] = sk2SegEnds(sh,i); if((sk2V.dist(a,m.a)<0.6 && sk2V.dist(b,m.b)<0.6) || (sk2V.dist(a,m.b)<0.6 && sk2V.dist(b,m.a)<0.6)){ sh.meas[i] = m.L; m._used = true; } } });
+  });
+  // second pass, only for measurements whose corners moved a little: find the same wall by where it is
+  shapes.forEach(sh=>{
+    keep.meas.forEach(m=>{ if(m._used) return;
+      const mm = {x:(m.a.x+m.b.x)/2, y:(m.a.y+m.b.y)/2}, ml = sk2V.dist(m.a, m.b), md = ml > 1e-6 ? sk2V.mul(sk2V.sub(m.b, m.a), 1/ml) : {x:1,y:0};
+      let best = -1, bd = Infinity;
+      for(let i=0;i<sk2SegCount(sh);i++){ if(sh.meas[i]!=null) continue; const [a,b] = sk2SegEnds(sh,i), l = sk2V.dist(a,b); if(l < 1e-6) continue;
+        const dd = sk2V.mul(sk2V.sub(b,a), 1/l); if(Math.abs(dd.x*md.x + dd.y*md.y) < 0.95) continue;        // same direction
+        if(Math.abs(l - ml) > Math.max(6, ml*0.15)) continue;                                                // about the same length
+        const dist = sk2V.dist({x:(a.x+b.x)/2, y:(a.y+b.y)/2}, mm); if(dist < Math.max(12, ml*0.5) && dist < bd){ bd = dist; best = i; } }
+      if(best >= 0){ sh.meas[best] = m.L; m._used = true; } });
     sh.lock = {};
     (keep.locks||[]).forEach(m=>{ for(let i=0;i<sk2SegCount(sh);i++){ const [a,b] = sk2SegEnds(sh,i); if((sk2V.dist(a,m.a)<0.6 && sk2V.dist(b,m.b)<0.6) || (sk2V.dist(a,m.b)<0.6 && sk2V.dist(b,m.a)<0.6)) sh.lock[i] = true; } });
   });
@@ -3678,7 +3689,7 @@ function sk2Draw(target){
     ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke(); ctx.setLineDash([]);
     const u = sk2V.norm(sk2V.sub(B,A)), nn = {x:-u.y, y:u.x};
     [A,B].forEach(P=>{ ctx.beginPath(); ctx.moveTo(P.x-nn.x*7, P.y-nn.y*7); ctx.lineTo(P.x+nn.x*7, P.y+nn.y*7); ctx.stroke(); });
-    const txt = st==='est' ? sk2Fmt(g.cur, true) : sk2Fmt(g.cur);
+    const txt = st==='est' ? sk2Fmt(g.cur, true) : sk2Fmt(d.val);
     ctx.font = (st==='est'?'italic 600 ':'700 ')+'12.5px Inter, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
     const mx = (A.x+B.x)/2, my = (A.y+B.y)/2, tw = ctx.measureText(txt).width + 10;
     ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fillRect(mx-tw/2, my-10, tw, 20); ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.strokeRect(mx-tw/2, my-10, tw, 20);
@@ -4402,7 +4413,7 @@ function sk2BindCalc(){
 }
 function sk2Push(){ const S = STATE.sk2; S.undo.push(JSON.stringify(S.plan)); if(S.undo.length > 60) S.undo.shift(); }
 function sk2Select(h){
-  const S = STATE.sk2;
+  const S = STATE.sk2; S.selByUser = true;
   S.sel = h ? (h.kind==='wall' ? {kind:'wall', sid:h.sid, seg:h.seg} : h) : null;
   if(h && h.kind==='wall') S.wallT = (h.t!=null ? h.t : 0.5);
   if(S.sel && S.sel.kind==='box') S.boxField = S.boxField || 'w';
@@ -4414,9 +4425,17 @@ function sk2Select(h){
 function sk2TapeCommit(raw){
   const S = STATE.sk2; if(!S || S.readOnly) return;
   const L = sk2ParseLen(raw);
-  if(L==null){ sk2Toast('Could not read "'+String(raw).trim()+'"'); return; }
+  if(L==null){ if(String(raw).trim()) sk2Toast('Could not read "'+String(raw).trim()+'"'); return; }
+  // the tape sometimes sends the same reading twice — the second one must not land on the next wall
+  const now = Date.now();
+  if(S._lastTape && Math.abs(S._lastTape.L - L) < 0.01 && now - S._lastTape.t < 2500){ return; }
+  S._lastTape = { L, t: now };
   const sel = S.sel;
   if(!sel){ sk2Toast('Tap a wall first, then measure ('+sk2Fmt(L)+')'); return; }
+  if(sel.kind==='wall'){
+    const sh = S.plan.shapes.find(x=>x.id===sel.sid);
+    if(sh && sh.meas && sh.meas[sel.seg]!=null && !S.selByUser){ sk2Toast('That wall is already measured ('+sk2Fmt(sh.meas[sel.seg])+') — tap it first if you want to change it. Nothing was changed.'); return; }
+  }
   sk2ApplyLength(L);
 }
 function sk2ApplyLength(L){
@@ -4452,7 +4471,7 @@ function sk2ApplyLength(L){
     // walk around the room: jump to the next wall that has no measurement yet
     const n = sk2SegCount(sh); let next = null;
     for(let k=1;k<=n;k++){ const j = (sel.seg + k) % n; if(!sh.closed && j===0 && sel.seg===n-1) break; if(sh.meas[j]==null){ next = j; break; } }
-    if(next!=null) S.sel = {kind:'wall', sid:sh.id, seg:next}; else msg += ' — all walls measured';
+    if(next!=null){ S.sel = {kind:'wall', sid:sh.id, seg:next}; S.selByUser = false; } else { msg += ' — all walls measured'; S.selByUser = false; }
     sk2Toast(msg); sk2Draw(); sk2Panel(); sk2FocusTape(); return;
   }
   if(sel.kind==='dim'){
@@ -4462,6 +4481,11 @@ function sk2ApplyLength(L){
     const shB = plan.shapes.find(x=>x.id===d.b.sid), old = shB.pts.map(q=>({...q}));
     const n = sk2V.norm(sk2V.sub(g.B, g.A)), mv = sk2V.mul(n, L - g.cur);
     const ia = d.b.seg, ib = (d.b.seg+1) % shB.pts.length;
+    { // moving that wall would stretch the walls on each side of it — never do that to a wall you measured
+      const nseg = sk2SegCount(shB), prev = shB.closed ? (d.b.seg-1+nseg)%nseg : d.b.seg-1, next = shB.closed ? (d.b.seg+1)%nseg : d.b.seg+1;
+      const meas = shB.meas || {}, touched = [prev, next].filter(k=>k>=0 && k<nseg && meas[k]!=null);
+      if(touched.length){ sk2Toast('✓ Saved '+sk2Fmt(L)+' — walls not moved, because the walls next to it are already measured. If it shows red, tap 📐 Straighten up or re-check.'); sk2Draw(); sk2Panel(); return; }
+    }
     shB.pts[ia] = sk2V.add(shB.pts[ia], mv); shB.pts[ib] = sk2V.add(shB.pts[ib], mv);
     const moved = sk2Propagate(plan, shB, old);
     sk2Toast('✓ '+sk2Fmt(L)+' — the wall moved to match'+(moved ? ' (and '+moved+' connected '+(moved===1?'wall':'walls')+')' : ''));
@@ -4532,8 +4556,8 @@ function sk2Panel(){
     const d = (plan.dims||[]).find(x=>x.id===sel.id), g = d && sk2DimGeom(plan, d); if(!g){ S.sel = null; return sk2Panel(); }
     const st = d.val==null ? 'est' : Math.abs(g.cur - d.val) < 0.15 ? 'ok' : 'off';
     h = `<h3>↔️ Measuring line</h3>
-      <div class="sk2-big" style="color:${st==='ok'?'#1d1a14':st==='off'?'#B3261E':'#8C8576'}">${st==='est' ? sk2Fmt(g.cur,true) : sk2Fmt(g.cur)}</div>
-      <div class="sub">${st==='est' ? 'Not measured yet' : st==='ok' ? '✓ Measured' : '⚠ Measured at '+sk2Fmt(d.val)+' but walls changed since'} · ${g.parallel ? 'measuring it moves the second wall you tapped to match' : 'these walls aren\'t parallel — the number is saved as a note'}</div>
+      <div class="sk2-big" style="color:${st==='ok'?'#1d1a14':st==='off'?'#B3261E':'#8C8576'}">${st==='est' ? sk2Fmt(g.cur,true) : sk2Fmt(d.val)}</div>
+      <div class="sub">${st==='est' ? 'Not measured yet' : st==='ok' ? '✓ Measured' : '⚠ Your measurement — the drawing doesn\'t match it (drawn '+sk2Fmt(g.cur)+'). Your number stays as you typed it'} · ${g.parallel ? 'measuring it moves the second wall you tapped to match' : 'these walls aren\'t parallel — the number is saved as a note'}</div>
       ${tapeBox('distance between the walls')}${lenInput('sk2-len')}
       ${ro ? '' : `<div class="sk2-row"><button class="sk2-b warn" data-sk2p="deldim">Delete measuring line</button></div>`}`;
   } else if(sel && sel.kind==='opening'){
@@ -4620,8 +4644,8 @@ function sk2PanelAction(a, btn){
   if(a==='mnone'){ sk2SetMulti(null); return; }
   if(a==='mdel'){ const m = S.multi; if(!m) return; sk2Push(); sk2DeleteSet(plan, m); S.multi = null; S.dirty = true; sk2Draw(); sk2Panel(); sk2Toast('Deleted — ↶ Undo brings it back'); return; }
   const shOf = ()=> sel && plan.shapes.find(x=>x.id===sel.sid);
-  if(a==='setlen'){ const i = document.getElementById(btn.dataset.input||'sk2-len'); const L = sk2ParseLen(i && i.value); if(L==null){ sk2Toast('Type a size like 12\' 4 3/8" or 12 4'); return; } if(i) i.value=''; sk2ApplyLength(L); if(i) i.blur(); return; }
-  if(a==='nextwall' || a==='prevwall'){ const sh = shOf(); const n = sk2SegCount(sh); S.sel = {kind:'wall', sid:sh.id, seg:(sel.seg + (a==='nextwall'?1:n-1)) % n}; sk2Draw(); sk2Panel(); sk2FocusTape(); return; }
+  if(a==='setlen'){ S.selByUser = true; const i = document.getElementById(btn.dataset.input||'sk2-len'); const L = sk2ParseLen(i && i.value); if(L==null){ sk2Toast('Type a size like 12\' 4 3/8" or 12 4'); return; } if(i) i.value=''; sk2ApplyLength(L); if(i) i.blur(); return; }
+  if(a==='nextwall' || a==='prevwall'){ const sh = shOf(); const n = sk2SegCount(sh); S.selByUser = true; S.sel = {kind:'wall', sid:sh.id, seg:(sel.seg + (a==='nextwall'?1:n-1)) % n}; sk2Draw(); sk2Panel(); sk2FocusTape(); return; }
   if(a==='adddoor' || a==='addwindow'){
     const sh = shOf(); const len = sk2SegLen(sh, sel.seg); const w = Math.min(a==='adddoor'?32:36, len*0.8);
     sk2Push(); const o = { id:sk2Uid(), sid:sh.id, seg:sel.seg, t:0.5, w, type:a==='adddoor'?'door':'window' }; plan.openings.push(o); S.dirty = true;
@@ -4642,7 +4666,7 @@ function sk2PanelAction(a, btn){
     const room = sk2SyncRooms(plan).find(x=>x.id===sel.rid); if(!room) return;
     const eds = room._f.edges; let pick = eds[0];
     for(const e of eds){ const sh = plan.shapes.find(x=>x.id===e.sid); if(sh && (!sh.meas || sh.meas[e.seg]==null)){ pick = e; break; } }
-    S.sel = {kind:'wall', sid:pick.sid, seg:pick.seg}; sk2Draw(); sk2Panel(); sk2FocusTape(); return;
+    S.sel = {kind:'wall', sid:pick.sid, seg:pick.seg}; S.selByUser = true; sk2Draw(); sk2Panel(); sk2FocusTape(); return;
   }
   if(a==='openroom'){ S.sel = {kind:'room', rid:btn.dataset.rid}; sk2Draw(); sk2Panel(); return; }
   if(a==='clearpicks'){ S.picks = []; sk2Draw(); sk2Panel(); return; }
@@ -11329,6 +11353,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-b</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-c</div>
 </body>
 </html>
