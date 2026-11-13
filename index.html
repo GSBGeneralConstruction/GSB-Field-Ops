@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.13-f';
+const APP_VERSION = 'v2026.11.13-h';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -4322,6 +4322,7 @@ const SK2_METHODS = {
   track:   { label:'Track / plates along the walls',p:'Length of one piece (ft)', p2:'Rows (2 = top+bottom, 3 = bottom + double top)' },
   wall:    { label:'Covers wall area',              p:'Sq ft covered by one' },
   cavity:  { label:'Fills the wall (insulation)',   p:'Sq ft covered by one' },
+  perim:   { label:'Around the room edge (once)',   p:'Feet in one piece' },
   floor:   { label:'Covers the floor',              p:'Sq ft covered by one (tile sold by the sq ft = 1)' },
   lf:      { label:'Runs along the walls',          p:'Feet in one piece' },
   perstud: { label:'So many per stud',              p:'How many per stud', p2:'How many in one box / pack' },
@@ -4337,7 +4338,14 @@ function sk2GuessMethod(m){
   const lenFt = sk2Num(/(\d+(?:\.\d+)?)\s*(?:ft|')\b/, size, 8);
   const gal = sk2Num(/(\d+(?:\.\d+)?)\s*gal/, size, 0), lb = sk2Num(/(\d+(?:\.\d+)?)\s*lb/, size, 0);
   const boxOf = sk2Num(/(?:box of|pack of|of)\s*(\d+)/, size, sk2Num(/(\d+)\s*pack/, size, 0));
-  if(/ceiling tile|acoustical tile|drop ceiling/.test(t)) return { method:'ceiling', p:sheetA || 8 };
+  // acoustic (drop) ceiling: tiles cover the ceiling; main tees every 4'; cross tees per tile; wall angle once around the room
+  if(/main (tee|runner)/.test(name)) return { method:'ceiling', p: lenFt*4 };
+  if(/cross tee/.test(name)) return { method:'ceiling', p: 8 };   // 2x4 grid: 4' tees ~1 per 8 sq ft · 2x2 grid: add 2' tees ~1 per 8 sq ft
+  if(/wall angle|wall molding|shadow molding/.test(name)) return { method:'perim', p: lenFt };
+  if(/ceiling hanger wire|hanger wire.*precut/.test(name)) return { method:'ceiling', p:16 };
+  if(/ceiling wire anchor|screw eye|ceiling clips/.test(name)) return { method:'ceiling', p: 16*(boxOf||1) };
+  if(/hold-down clip/.test(name)) return { method:'ceiling', p: 4*(boxOf||1) };
+  if(/ceiling tile|acoustical tile|acoustic.*tile|drop ceiling/.test(t)) return { method:'ceiling', p:sheetA || 8 };
   if(/ceiling board|ceiling/.test(name) && /sheet/.test(size)) return { method:'ceiling', p:sheetA };
   if(/screw|nail|clip|bridging|hanger|anchor|pin|bolt|tie/.test(name)){
     if(/drywall screw|cement board screw|board screw/.test(name)) return { method:'wall', p: Math.round((lb||1)*300) };   // about 1 screw per sq ft, ~300 per lb
@@ -4393,6 +4401,7 @@ function sk2ItemQty(it, x){
     case 'wall':    return needWalls({ qty: p ? up(x.wallSqft*w/p) : 0, how: sf(x.wallSqft)+' sq ft of wall ÷ '+sf(p)+' sq ft each'+pct });
     case 'cavity':  return needWalls({ qty: p ? up(x.oneSide*w/p) : 0, how: sf(x.oneSide)+' sq ft of wall (one side) ÷ '+sf(p)+' sq ft each'+pct });
     case 'floor':   return x.floor ? { qty: p ? up(x.floor*w/p) : 0, how: sf(x.floor)+' sq ft of floor ÷ '+sf(p)+' sq ft each'+pct } : { qty:0, how:'Needs a room: tap inside a room → 🧮 Materials for this room' };
+    case 'perim': { const lf = x.L/12; return needWalls({ qty: p ? up(lf*w/p) : 0, how: lf.toFixed(1)+' LF around the edge ÷ '+p+' ft pieces'+pct }); }
     case 'lf': { const lf = (x.L - x.doorW)/12*x.sides; return needWalls({ qty: p ? up(lf*w/p) : 0, how: lf.toFixed(0)+' LF ('+(x.sides==1?'1 side':'both sides')+', doors left out) ÷ '+p+' ft each'+pct }); }
     case 'perstud': { const n = up(x.studs*w)*p; return needWalls({ qty: p2 ? up(n/p2) : n, how: p+' per stud × '+up(x.studs*w)+' studs = '+n.toLocaleString()+(p2 ? ' ÷ '+p2.toLocaleString()+' a box' : '') }); }
     case 'anchors': { const n = up((x.L - x.doorW)/(p||24) + x.walls); return needWalls({ qty: p2 ? up(n/p2) : n, how: 'One every '+(p||24)+'" + one at each end = '+n+(p2 ? ' ÷ '+p2+' a box' : '') }); }
@@ -4433,7 +4442,7 @@ function sk2CalcHTML(plan, m){
           ${def.p ? `<label>${esc(def.p)}<input type="number" inputmode="decimal" step="any" min="0" data-sk2c-p="${i}" value="${it.p ?? ''}"></label>` : ''}
           ${def.p2 ? `<label>${esc(def.p2)}<input type="number" inputmode="decimal" step="any" min="0" data-sk2c-p2="${i}" value="${it.p2 ?? ''}"></label>` : ''}
         </div>` : ''}
-      <div class="sk2-area">${[['walls','🧱 Walls'],['floor','⬜ Floor'],['ceiling','⬛ Ceiling']].map(([k,l])=>{ const cur = it.method==='floor' ? 'floor' : it.method==='ceiling' ? 'ceiling' : it.method==='manual' ? '' : 'walls'; return `<button type="button" class="${cur===k?'on':''}" data-sk2p="calcarea" data-i="${i}" data-area="${k}">${l}</button>`; }).join('')}</div>
+      <div class="sk2-area">${[['walls','🧱 Walls'],['floor','⬜ Floor'],['ceiling','⬛ Ceiling']].map(([k,l])=>{ const cur = it.method==='floor' ? 'floor' : (it.method==='ceiling' || it.method==='perim') ? 'ceiling' : it.method==='manual' ? '' : 'walls'; return `<button type="button" class="${cur===k?'on':''}" data-sk2p="calcarea" data-i="${i}" data-area="${k}">${l}</button>`; }).join('')}</div>
       <div class="acts"><button type="button" data-sk2p="calcedit" data-i="${i}">${open ? '✓ Done' : '⚙ How it\'s counted'}</button><button type="button" data-sk2p="calcdel" data-i="${i}">✕ Remove</button></div>
     </div>`;
   }).join('');
@@ -4738,6 +4747,7 @@ function sk2PanelAction(a, btn){
     const sheet = mm ? String((mm.size||'')+' '+(mm.name||'')).match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i) : null, sheetA = sheet ? (+sheet[1])*(+sheet[2]) : 0;
     const areaP = ['sheets','wall','cavity','floor','ceiling'].includes(it.method) ? it.p : (sheetA || (/sq ?ft|sf/i.test(mm && mm.size || '') ? 1 : 1));
     const area = btn.dataset.area;
+    if(area==='ceiling' && it.method==='perim'){ return; }   // wall angle already goes around the ceiling's edge
     if(area==='floor' || area==='ceiling'){ it.method = area; it.p = areaP; delete it.p2; }
     else { if(['walls'].includes(area)){ if(g.method && !['floor','ceiling','manual'].includes(g.method)){ it.method = g.method; it.p = g.p; if(g.p2!=null) it.p2 = g.p2; } else { it.method = sheetA ? 'sheets' : 'wall'; it.p = areaP || 32; } } }
     S.calcEdit = null; sk2SaveItems(); sk2Panel();
@@ -9078,7 +9088,7 @@ document.addEventListener('click', (e)=>{
 });
 
 /* ================= STANDARD MATERIALS (pre-loaded) ================= */
-const MAT_CATS = ['Drywall','Wall Panels','Metal Framing','Lumber & Sheathing','Screws & Fasteners','Finishing & Mud','Insulation','Electrical','Plumbing','Paint & Caulk','Tile & Flooring','Doors & Trim','Cabinets & Counters','Windows & Exterior','Concrete & Masonry','Roofing','HVAC','Hardware','Tools & Safety','Misc / Jobsite'];
+const MAT_CATS = ['Drywall','Acoustic Ceilings','Wall Panels','Metal Framing','Lumber & Sheathing','Screws & Fasteners','Finishing & Mud','Insulation','Electrical','Plumbing','Paint & Caulk','Tile & Flooring','Doors & Trim','Cabinets & Counters','Windows & Exterior','Concrete & Masonry','Roofing','HVAC','Hardware','Tools & Safety','Misc / Jobsite'];
 const STD_MATERIALS = [
  ['Drywall','Drywall 1/2" Regular','4x8 sheet','sheet'],['Drywall','Drywall 1/2" Regular','4x12 sheet','sheet'],
  ['Drywall','Drywall 1/2" Lightweight','4x8 sheet','sheet'],['Drywall','Drywall 5/8" Type X (fire-rated)','4x8 sheet','sheet'],
@@ -9245,7 +9255,128 @@ const STD_MATERIALS_V4 = [
  ['Wall Panels','FRP Divider / Joint Trim (plastic)','8 ft','board'],['Wall Panels','FRP Inside Corner Trim (plastic)','8 ft','board'],['Wall Panels','FRP Outside Corner Trim (plastic)','8 ft','board'],['Wall Panels','FRP Edge / Cap Trim (plastic)','8 ft','board'],
  ['Wall Panels','Silicone Sealant White (FRP seams)','10 oz tube','tube'],['Wall Panels','PVC Wall Panel (bathroom/shower panel)','4x8 sheet','sheetwhite'],
 ];
-const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3', MAT_SEED_MARKER4 = 'std-seeded-v4';
+const STD_MATERIALS_V5 = [   // longer metal studs + track, acoustic ceiling tiles and grid
+ ['Metal Framing','Metal Stud 1-5/8" 25ga','10 ft','stud'],
+ ['Metal Framing','Metal Stud 1-5/8" 25ga','12 ft','stud'],
+ ['Metal Framing','Metal Stud 1-5/8" 25ga','14 ft','stud'],
+ ['Metal Framing','Metal Stud 1-5/8" 25ga','16 ft','stud'],
+ ['Metal Framing','Metal Stud 1-5/8" 25ga','20 ft','stud'],
+ ['Metal Framing','Metal Stud 2-1/2" 25ga','10 ft','stud'],
+ ['Metal Framing','Metal Stud 2-1/2" 25ga','12 ft','stud'],
+ ['Metal Framing','Metal Stud 2-1/2" 25ga','14 ft','stud'],
+ ['Metal Framing','Metal Stud 2-1/2" 25ga','16 ft','stud'],
+ ['Metal Framing','Metal Stud 2-1/2" 25ga','20 ft','stud'],
+ ['Metal Framing','Metal Stud 2-1/2" 20ga (structural)','10 ft','stud'],
+ ['Metal Framing','Metal Stud 2-1/2" 20ga (structural)','12 ft','stud'],
+ ['Metal Framing','Metal Stud 2-1/2" 20ga (structural)','14 ft','stud'],
+ ['Metal Framing','Metal Stud 2-1/2" 20ga (structural)','16 ft','stud'],
+ ['Metal Framing','Metal Stud 2-1/2" 20ga (structural)','20 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 25ga','10 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 25ga','12 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 25ga','14 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 25ga','16 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 25ga','20 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 20ga (structural)','10 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 20ga (structural)','12 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 20ga (structural)','14 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 20ga (structural)','16 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 20ga (structural)','20 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 18ga (structural)','10 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 18ga (structural)','12 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 18ga (structural)','14 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 18ga (structural)','16 ft','stud'],
+ ['Metal Framing','Metal Stud 3-5/8" 18ga (structural)','20 ft','stud'],
+ ['Metal Framing','Metal Stud 4" 25ga','10 ft','stud'],
+ ['Metal Framing','Metal Stud 4" 25ga','12 ft','stud'],
+ ['Metal Framing','Metal Stud 4" 25ga','14 ft','stud'],
+ ['Metal Framing','Metal Stud 4" 25ga','16 ft','stud'],
+ ['Metal Framing','Metal Stud 4" 25ga','20 ft','stud'],
+ ['Metal Framing','Metal Stud 4" 20ga (structural)','10 ft','stud'],
+ ['Metal Framing','Metal Stud 4" 20ga (structural)','12 ft','stud'],
+ ['Metal Framing','Metal Stud 4" 20ga (structural)','14 ft','stud'],
+ ['Metal Framing','Metal Stud 4" 20ga (structural)','16 ft','stud'],
+ ['Metal Framing','Metal Stud 4" 20ga (structural)','20 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 25ga','10 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 25ga','12 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 25ga','14 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 25ga','16 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 25ga','20 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 20ga (structural)','10 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 20ga (structural)','12 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 20ga (structural)','14 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 20ga (structural)','16 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 20ga (structural)','20 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 18ga (structural)','10 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 18ga (structural)','12 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 18ga (structural)','14 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 18ga (structural)','16 ft','stud'],
+ ['Metal Framing','Metal Stud 6" 18ga (structural)','20 ft','stud'],
+ ['Metal Framing','Metal Stud 8" 20ga (structural)','10 ft','stud'],
+ ['Metal Framing','Metal Stud 8" 20ga (structural)','12 ft','stud'],
+ ['Metal Framing','Metal Stud 8" 20ga (structural)','14 ft','stud'],
+ ['Metal Framing','Metal Stud 8" 20ga (structural)','16 ft','stud'],
+ ['Metal Framing','Metal Stud 8" 20ga (structural)','20 ft','stud'],
+ ['Metal Framing','Metal Track 2-1/2" 25ga','12 ft','track'],
+ ['Metal Framing','Metal Track 2-1/2" 20ga','12 ft','track'],
+ ['Metal Framing','Metal Track 3-5/8" 25ga','12 ft','track'],
+ ['Metal Framing','Metal Track 3-5/8" 20ga','12 ft','track'],
+ ['Metal Framing','Metal Track 6" 25ga','12 ft','track'],
+ ['Metal Framing','Metal Track 6" 20ga','12 ft','track'],
+ ['Acoustic Ceilings','Acoustic Ceiling Tile 2x2 Fissured (square edge)','each','sheetwhite'],
+ ['Acoustic Ceilings','Acoustic Ceiling Tile 2x2 Fissured Tegular (reveal edge)','each','sheetwhite'],
+ ['Acoustic Ceilings','Acoustic Ceiling Tile 2x4 Fissured (square edge)','each','sheetwhite'],
+ ['Acoustic Ceilings','Acoustic Ceiling Tile 2x2 Smooth / Fine Texture','each','sheetwhite'],
+ ['Acoustic Ceilings','Acoustic Ceiling Tile 2x4 Smooth / Fine Texture','each','sheetwhite'],
+ ['Acoustic Ceilings','Acoustic Ceiling Tile 2x2 Moisture / Mold Resistant','each','sheetwhite'],
+ ['Acoustic Ceilings','Acoustic Ceiling Tile 2x4 Moisture / Mold Resistant','each','sheetwhite'],
+ ['Acoustic Ceilings','Acoustic Ceiling Tile 2x2 Vinyl-Faced (washable)','each','sheetwhite'],
+ ['Acoustic Ceilings','Acoustic Ceiling Tile 2x2 Fire-Rated','each','sheetwhite'],
+ ['Acoustic Ceilings','Acoustic Ceiling Tile 2x4 Fire-Rated','each','sheetwhite'],
+ ['Acoustic Ceilings','Acoustic Ceiling Tile 2x2 High-NRC (sound absorbing)','each','sheetwhite'],
+ ['Acoustic Ceilings','Ceiling Grid Main Tee 15/16" White','12 ft','track'],
+ ['Acoustic Ceilings','Ceiling Grid Main Tee 15/16" Fire-Rated','12 ft','track'],
+ ['Acoustic Ceilings','Ceiling Grid Cross Tee 15/16" White','4 ft','track'],
+ ['Acoustic Ceilings','Ceiling Grid Cross Tee 15/16" White','2 ft','track'],
+ ['Acoustic Ceilings','Ceiling Grid Wall Angle (wall molding) White','12 ft','bead'],
+ ['Acoustic Ceilings','Ceiling Grid Wall Angle (wall molding) White','10 ft','bead'],
+ ['Acoustic Ceilings','Ceiling Grid Shadow Molding White','10 ft','bead'],
+ ['Acoustic Ceilings','Ceiling Hanger Wire 12ga Precut','12 ft','wire'],
+ ['Acoustic Ceilings','Ceiling Wire Anchors / Screw Eyes','box of 100','screw'],
+ ['Acoustic Ceilings','Ceiling Clips with Pins (powder-actuated)','box of 100','bracket'],
+ ['Acoustic Ceilings','Ceiling Tile Hold-Down Clips','box of 100','bracket'],
+ ['Acoustic Ceilings','Pop Rivets for Wall Angle','box of 100','screw'],
+];
+const STD_MATERIALS_V6 = [   // regular plywood + longer track
+ ['Lumber & Sheathing','Plywood 1/4" Regular','4x8 sheet','sheetwood'],
+ ['Lumber & Sheathing','Plywood 3/8" Regular','4x8 sheet','sheetwood'],
+ ['Lumber & Sheathing','Plywood 1/2" Regular','4x8 sheet','sheetwood'],
+ ['Lumber & Sheathing','Plywood 5/8" Regular','4x8 sheet','sheetwood'],
+ ['Lumber & Sheathing','Plywood 3/4" Regular','4x8 sheet','sheetwood'],
+ ['Lumber & Sheathing','Plywood 1/2" Regular','4x10 sheet','sheetwood'],
+ ['Lumber & Sheathing','Plywood 3/4" Regular','4x10 sheet','sheetwood'],
+ ['Lumber & Sheathing','Plywood 3/4" Tongue & Groove Subfloor','4x8 sheet','sheetwood'],
+ ['Metal Framing','Metal Track 1-5/8" 25ga','12 ft','track'],
+ ['Metal Framing','Metal Track 2-1/2" 25ga','14 ft','track'],
+ ['Metal Framing','Metal Track 2-1/2" 25ga','16 ft','track'],
+ ['Metal Framing','Metal Track 2-1/2" 25ga','20 ft','track'],
+ ['Metal Framing','Metal Track 2-1/2" 20ga','14 ft','track'],
+ ['Metal Framing','Metal Track 2-1/2" 20ga','16 ft','track'],
+ ['Metal Framing','Metal Track 2-1/2" 20ga','20 ft','track'],
+ ['Metal Framing','Metal Track 3-5/8" 25ga','14 ft','track'],
+ ['Metal Framing','Metal Track 3-5/8" 25ga','16 ft','track'],
+ ['Metal Framing','Metal Track 3-5/8" 25ga','20 ft','track'],
+ ['Metal Framing','Metal Track 3-5/8" 20ga','14 ft','track'],
+ ['Metal Framing','Metal Track 3-5/8" 20ga','16 ft','track'],
+ ['Metal Framing','Metal Track 3-5/8" 20ga','20 ft','track'],
+ ['Metal Framing','Metal Track 6" 25ga','14 ft','track'],
+ ['Metal Framing','Metal Track 6" 25ga','16 ft','track'],
+ ['Metal Framing','Metal Track 6" 25ga','20 ft','track'],
+ ['Metal Framing','Metal Track 6" 20ga','14 ft','track'],
+ ['Metal Framing','Metal Track 6" 20ga','16 ft','track'],
+ ['Metal Framing','Metal Track 6" 20ga','20 ft','track'],
+ ['Acoustic Ceilings','Ceiling Grid Cross Tee 15/16" Fire-Rated','4 ft','track'],
+];
+const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3', MAT_SEED_MARKER4 = 'std-seeded-v4', MAT_SEED_MARKER5 = 'std-seeded-v5', MAT_SEED_MARKER6 = 'std-seeded-v6';
 function matList(){ return DB.materials.filter(m=>!m.system); }
 /* Material picker for the Pricing Calculator: full scrolling list, or filtered while you type in the search box */
 function matOptionsHTML(selectedId, query){
@@ -9322,7 +9453,7 @@ function matThumbHTML(m, size){
 async function seedStandardMaterials(force){
   const have = new Set(DB.materials.map(m=>m.id));
   const offline = (typeof navigator!=='undefined' && navigator.onLine===false);
-  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2}, {marker:MAT_SEED_MARKER3, items:STD_MATERIALS_V3}, {marker:MAT_SEED_MARKER4, items:STD_MATERIALS_V4} ];
+  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2}, {marker:MAT_SEED_MARKER3, items:STD_MATERIALS_V3}, {marker:MAT_SEED_MARKER4, items:STD_MATERIALS_V4}, {marker:MAT_SEED_MARKER5, items:STD_MATERIALS_V5}, {marker:MAT_SEED_MARKER6, items:STD_MATERIALS_V6} ];
   const added = [];
   for(const bt of batches){
     if(!force){ if(have.has(bt.marker)) continue; if(offline) continue; }   // never seed from an empty offline cache
@@ -11465,6 +11596,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-f</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-h</div>
 </body>
 </html>
