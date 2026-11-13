@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.13-h';
+const APP_VERSION = 'v2026.11.13-i';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -4350,7 +4350,8 @@ function sk2GuessMethod(m){
   if(/screw|nail|clip|bridging|hanger|anchor|pin|bolt|tie/.test(name)){
     if(/drywall screw|cement board screw|board screw/.test(name)) return { method:'wall', p: Math.round((lb||1)*300) };   // about 1 screw per sq ft, ~300 per lb
     if(/powder|pins|expansion anchor|concrete|tapcon/.test(name)) return { method:'anchors', p:24, p2: boxOf || 100 };
-    if(/self-drilling|wafer|pan head|framing screw|stud clip|bridging/.test(name)) return { method:'perstud', p:4, p2: boxOf || 1000 };
+    if(/structural framing screw/.test(name)) return { method:'manual', p:1 };
+    if(/self-drilling|self-tapping|tek screw|wafer|pan head|framing screw|stud clip|bridging/.test(name)) return { method:'perstud', p:4, p2: boxOf || 1000 };
     if(/framing nail|collated|16d|10d/.test(name)) return { method:'perstud', p:6, p2: boxOf || Math.round((lb||5)*45) };
   }
   if(/sheet/.test(size) && /drywall|board|plywood|osb|sheathing|mdf|hardboard|foam|masonite|zip/.test(t)) return { method:'sheets', p:sheetA };
@@ -9376,7 +9377,36 @@ const STD_MATERIALS_V6 = [   // regular plywood + longer track
  ['Metal Framing','Metal Track 6" 20ga','20 ft','track'],
  ['Acoustic Ceilings','Ceiling Grid Cross Tee 15/16" Fire-Rated','4 ft','track'],
 ];
-const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3', MAT_SEED_MARKER4 = 'std-seeded-v4', MAT_SEED_MARKER5 = 'std-seeded-v5', MAT_SEED_MARKER6 = 'std-seeded-v6';
+const STD_MATERIALS_V7 = [   // self-tapping, self-drilling (tek) and framing screws
+ ['Screws & Fasteners','Self-Tapping Screws #6 x 1" (bugle head, sharp point)','box of 1000','screw'],
+ ['Screws & Fasteners','Self-Tapping Screws #6 x 1-1/4" (bugle head, sharp point)','box of 1000','screw'],
+ ['Screws & Fasteners','Self-Tapping Screws #8 x 1/2" (pan head, sharp point)','box of 1000','screw'],
+ ['Screws & Fasteners','Self-Tapping Screws #8 x 1/2" (modified truss head, sharp point)','box of 1000','screw'],
+ ['Screws & Fasteners','Self-Tapping Screws #8 x 3/4" (pan head, sharp point)','box of 1000','screw'],
+ ['Screws & Fasteners','Self-Tapping Screws #8 x 1" (pan head, sharp point)','box of 500','screw'],
+ ['Screws & Fasteners','Self-Tapping Screws #10 x 3/4" (hex washer head, sharp point)','box of 500','screw'],
+ ['Screws & Fasteners','Self-Tapping Screws #10 x 1" (hex washer head, sharp point)','box of 500','screw'],
+ ['Screws & Fasteners','Self-Tapping Screws #10 x 1-1/2" (hex washer head, sharp point)','box of 250','screw'],
+ ['Screws & Fasteners','Self-Drilling Tek Screws #8 x 1/2" (modified truss head, drill point)','box of 1000','screw'],
+ ['Screws & Fasteners','Self-Drilling Tek Screws #8 x 3/4" (hex washer head, drill point)','box of 1000','screw'],
+ ['Screws & Fasteners','Self-Drilling Tek Screws #10 x 1" (hex washer head, drill point)','box of 500','screw'],
+ ['Screws & Fasteners','Self-Drilling Tek Screws #10 x 1-1/2" (hex washer head, drill point)','box of 250','screw'],
+ ['Screws & Fasteners','Self-Drilling Tek Screws #12 x 1-1/4" (hex washer head, drill point)','box of 250','screw'],
+ ['Screws & Fasteners','Self-Drilling Tek Screws #12 x 2" (hex washer head, drill point)','box of 250','screw'],
+ ['Screws & Fasteners','Self-Drilling Tek Screws #14 x 1" (hex washer head, drill point)','box of 250','screw'],
+ ['Screws & Fasteners','Self-Drilling Tek Screws #14 x 1-1/2" (hex washer head, drill point)','box of 100','screw'],
+ ['Screws & Fasteners','Self-Drilling Wing-Tip Screws #10 x 1-7/16" (wood to metal)','box of 500','screw'],
+ ['Screws & Fasteners','Framing Screws #9 x 2-1/2" (wood framing, star drive)','box of 500','screw'],
+ ['Screws & Fasteners','Framing Screws #10 x 3" (wood framing, star drive)','box of 500','screw'],
+ ['Screws & Fasteners','Framing Screws #10 x 3-1/8" (wood framing, star drive)','box of 1000','screw'],
+ ['Screws & Fasteners','Framing Screws #10 x 3-1/2" (wood framing, star drive)','box of 500','screw'],
+ ['Screws & Fasteners','Framing Screws #10 x 4" (wood framing, star drive)','box of 250','screw'],
+ ['Screws & Fasteners','Framing Screws #9 x 2-1/2" Exterior Coated (treated lumber)','box of 500','screw'],
+ ['Screws & Fasteners','Framing Screws #10 x 3" Exterior Coated (treated lumber)','box of 500','screw'],
+ ['Screws & Fasteners','Collated Framing Screws #10 x 3" (strip)','box of 1000','screw'],
+ ['Screws & Fasteners','Structural Framing Screws 5/16" x 4" (lag replacement)','box of 50','screw'],
+];
+const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3', MAT_SEED_MARKER4 = 'std-seeded-v4', MAT_SEED_MARKER5 = 'std-seeded-v5', MAT_SEED_MARKER6 = 'std-seeded-v6', MAT_SEED_MARKER7 = 'std-seeded-v7';
 function matList(){ return DB.materials.filter(m=>!m.system); }
 /* Material picker for the Pricing Calculator: full scrolling list, or filtered while you type in the search box */
 function matOptionsHTML(selectedId, query){
@@ -9453,7 +9483,7 @@ function matThumbHTML(m, size){
 async function seedStandardMaterials(force){
   const have = new Set(DB.materials.map(m=>m.id));
   const offline = (typeof navigator!=='undefined' && navigator.onLine===false);
-  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2}, {marker:MAT_SEED_MARKER3, items:STD_MATERIALS_V3}, {marker:MAT_SEED_MARKER4, items:STD_MATERIALS_V4}, {marker:MAT_SEED_MARKER5, items:STD_MATERIALS_V5}, {marker:MAT_SEED_MARKER6, items:STD_MATERIALS_V6} ];
+  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2}, {marker:MAT_SEED_MARKER3, items:STD_MATERIALS_V3}, {marker:MAT_SEED_MARKER4, items:STD_MATERIALS_V4}, {marker:MAT_SEED_MARKER5, items:STD_MATERIALS_V5}, {marker:MAT_SEED_MARKER6, items:STD_MATERIALS_V6}, {marker:MAT_SEED_MARKER7, items:STD_MATERIALS_V7} ];
   const added = [];
   for(const bt of batches){
     if(!force){ if(have.has(bt.marker)) continue; if(offline) continue; }   // never seed from an empty offline cache
@@ -11596,6 +11626,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-h</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-i</div>
 </body>
 </html>
