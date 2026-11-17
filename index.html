@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.13-m';
+const APP_VERSION = 'v2026.11.17-a';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -7877,7 +7877,7 @@ function estimateDocHTML(e, opts){
     <div class="est-small">${TR(lang,'Permit fees charged by the city or county are not included — see Section 4.')}</div>
 
     <div class="est-h">${TR(lang,"3. What's Included / Not Included")}</div>
-    <div class="est-box">${parseLiteMarkup(getLegalDoc('estimate-included'+(lang==='fr'?'-fr':'')).content)}</div>
+    <div class="est-box">${(()=>{ const src = getLegalDoc('estimate-included'+(lang==='fr'?'-fr':'')).content; return parseLiteMarkup(e.signedAt ? src : addCleanupToEstimateIncluded(src, lang)); })()}</div>
 
     <div class="est-h">${TR(lang,'4. Permits — How They Work')}</div>
     <div class="est-box">${parseLiteMarkup(getLegalDoc('estimate-permits'+(lang==='fr'?'-fr':'')).content)}</div>
@@ -8465,6 +8465,30 @@ function contractCounty(c){
   return guessCounty(c && c.address);
 }
 const COUNTY_DATALIST = '<datalist id="county-list"><option value="Broward County"><option value="Miami-Dade County"><option value="Palm Beach County"></datalist>';
+/* Cleanup & garbage removal promise — shown on every estimate and contract that isn't signed yet (signed ones stay exactly as signed) */
+const CLEANUP_CONTRACT = {
+  en: "**Cleanup & Garbage Removal** — Contractor will clean up after itself and pick up, remove, and haul away all garbage, construction debris, and waste from its work. The work area is cleaned up at the end of each workday and left broom-clean when the job is complete. Garbage removal and disposal are included in the Contract Price.",
+  fr: "**Nettoyage et enlèvement des déchets** — L'Entrepreneur nettoie après son passage et ramasse, enlève et transporte hors du chantier tous les déchets, débris de construction et rebuts provenant de ses travaux. La zone de travail est nettoyée à la fin de chaque journée de travail et laissée propre et balayée à la fin des travaux. L'enlèvement et l'élimination des déchets sont inclus dans le prix du contrat."
+};
+const CLEANUP_ESTIMATE = {
+  en: "- Cleanup and garbage removal: we clean up after ourselves and haul away all garbage and construction debris from our work. The work area is cleaned up at the end of each day and left broom-clean when the job is done.",
+  fr: "- Le nettoyage et l'enlèvement des déchets : nous nettoyons après notre passage et transportons hors du chantier tous les déchets et débris de construction provenant de nos travaux. La zone de travail est nettoyée à la fin de chaque journée et laissée propre et balayée à la fin des travaux."
+};
+function addCleanupToContractPage1(src, lang){
+  const t = CLEANUP_CONTRACT[lang==='fr' ? 'fr' : 'en'];
+  if(/Cleanup & Garbage Removal|Nettoyage et enlèvement des déchets/.test(src)) return src;
+  const anchor = lang==='fr' ? '\n\n**Démolition' : '\n\n**Demolition';
+  const i = src.indexOf(anchor);
+  return i>=0 ? src.slice(0,i) + '\n\n' + t + src.slice(i) : src.replace(/\s*$/,'') + '\n\n' + t;
+}
+function addCleanupToEstimateIncluded(src, lang){
+  const t = CLEANUP_ESTIMATE[lang==='fr' ? 'fr' : 'en'];
+  if(/Cleanup and garbage removal|enlèvement des déchets/.test(src)) return src;
+  const head = lang==='fr' ? /\n## Non inclus/ : /\n## Not included/;
+  const m = head.exec(src);
+  if(m){ const before = src.slice(0, m.index).replace(/\s*$/,''); return before + '\n' + t + '\n' + src.slice(m.index); }
+  return src.replace(/\s*$/,'') + '\n' + t;
+}
 function getContractPages(c, lang){
   const county = c ? contractCounty(c) : null;
   return [1,2,3,4,5].map(n => {
@@ -8473,6 +8497,7 @@ function getContractPages(c, lang){
       if(lang==='fr') src = src.split('la Ville et du comté de Broward').join('la Ville et du comté de '+county.replace(/\s*County$/i,''));
       else src = src.split('the City and Broward County').join('the City and '+county);   // permits are pulled in the county where the job is
     }
+    if(n===1 && !(c && (c.status==='signed' || c.signedAt))) src = addCleanupToContractPage1(src, lang);
     return { page:n, html: parseLiteMarkup(src) };
   });
 }
@@ -11923,6 +11948,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.13-m</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.17-a</div>
 </body>
 </html>
