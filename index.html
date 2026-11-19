@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.19-b';
+const APP_VERSION = 'v2026.11.19-c';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -4398,6 +4398,10 @@ function sk2GuessMethod(m){
   const lenFt = sk2Num(/(\d+(?:\.\d+)?)\s*(?:ft|')\b/, size, 8);
   const gal = sk2Num(/(\d+(?:\.\d+)?)\s*gal/, size, 0), lb = sk2Num(/(\d+(?:\.\d+)?)\s*lb/, size, 0);
   const boxOf = sk2Num(/(?:box of|pack of|of)\s*(\d+)/, size, sk2Num(/(\d+)\s*pack/, size, 0));
+  // vinyl / rubber baseboard (cove base): runs along the walls; corners are typed; adhesive by the foot
+  if(/cove base adhesive/.test(name)) return { method:'lf', p: /cartridge/.test(size) ? 40 : (gal||1)*150 };   // ~40 LF per tube, ~150 LF per gallon
+  if(/(outside|inside) corner/.test(name) && /baseboard|cove base/.test(name)) return { method:'manual', p:4 };
+  if(/cove base|wall base|vinyl baseboard|pvc\) baseboard/.test(name)) return { method:'lf', p: /roll/.test(size) ? sk2Num(/(\d+)\s*ft/, size, 120) : lenFt };
   // acoustic (drop) ceiling: tiles cover the ceiling; main tees every 4'; cross tees per tile; wall angle once around the room
   if(/main (tee|runner)/.test(name)) return { method:'ceiling', p: lenFt*4 };
   if(/cross tee/.test(name)) return { method:'ceiling', p: 8 };   // 2x4 grid: 4' tees ~1 per 8 sq ft · 2x2 grid: add 2' tees ~1 per 8 sq ft
@@ -9209,7 +9213,31 @@ function shoppingListHTML(f){
 /* ================= MATERIAL PICKER (search + pictures) for the Pricing Calculator ================= */
 /* search words: ignore quote marks and a plural "s" (studs → stud) */
 function matSearchWords(q){ return String(q||'').toLowerCase().replace(/["“”″]/g,' ').split(/\s+/).filter(Boolean).map(w=> (w.length > 3 && /[a-z]s$/.test(w) && !/ss$/.test(w)) ? w.slice(0,-1) : w); }
-function matSearchHit(m, words){ const t = (m.name+' '+(m.size||'')+' '+(m.category||'')+' '+(m.unit||'')).toLowerCase().replace(/["“”″]/g,' '); return words.every(x=>t.includes(x)); }
+function matSearchHit(m, words, fuzzy){ const t = (m.name+' '+(m.size||'')+' '+(m.category||'')+' '+(m.unit||'')).toLowerCase().replace(/["“”″]/g,' ');
+  if(!fuzzy) return words.every(x=>t.includes(x));
+  const toks = t.split(/[^a-z0-9\/.]+/).filter(Boolean);
+  return words.every(x=>{ if(t.includes(x)) return true; if(x.length < 4 || !/[a-z]/.test(x)) return false;
+    const max = x.length >= 5 ? 2 : 1;
+    return toks.some(k=>{ const c = [k, k.replace(/s$/,''), k.slice(0, x.length), k.slice(0, x.length+1)];
+      return c.some(v=>matDist(x, v) <= max) || matLetters(x, k); }); }); }
+/* jumbled letters: "acstuci" ~ "acoustic", "martiel" ~ "material" (same first letter, nearly the same letters) */
+function matLetters(a, b){
+  if(a.length < 6 || a[0]!==b[0] || Math.abs(a.length - b.length) > 2) return false;
+  const cnt = {}; for(const ch of b) cnt[ch] = (cnt[ch]||0) + 1;
+  let same = 0; for(const ch of a) if(cnt[ch] > 0){ cnt[ch]--; same++; }
+  return same / Math.max(a.length, b.length) >= 0.85;
+}
+/* small spelling mistakes: "vinaly" ~ "vinyl", "basedboard" ~ "baseboard", "acstuci" ~ "acoustic" */
+function matDist(a, b){
+  if(Math.abs(a.length - b.length) > 3) return 9;
+  const d = []; for(let i=0;i<=a.length;i++){ d.push([i]); } for(let j=1;j<=b.length;j++) d[0][j] = j;
+  for(let i=1;i<=a.length;i++) for(let j=1;j<=b.length;j++){
+    const c = a[i-1]===b[j-1] ? 0 : 1;
+    d[i][j] = Math.min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1]+c);
+    if(i>1 && j>1 && a[i-1]===b[j-2] && a[i-2]===b[j-1]) d[i][j] = Math.min(d[i][j], d[i-2][j-2]+1);   // swapped letters
+  }
+  return d[a.length][b.length];
+}
 function openMatPicker(lineId, target, onPick, startQ){
   let line = null, f = null, isMeasure = target==='measure';
   if(typeof onPick !== 'function'){
@@ -9236,10 +9264,12 @@ function openMatPicker(lineId, target, onPick, startQ){
   function paint(){
     const cats = [''].concat(MAT_CATS);
     $('mp-cats').innerHTML = cats.map(c=>`<button type="button" data-mpcat="${esc(c)}" class="btn small ${c===cat?'':'ghost'}">${c?esc(c):'All'}</button>`).join('');
-    const items = all.filter(hit).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+    let items = all.filter(hit), close = false;
+    if(!items.length && q.trim()){ const w = matSearchWords(q); items = all.filter(m=>(!cat || (m.category||'')===cat) && matSearchHit(m, w, true)); close = items.length > 0; }
+    items.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
     const shown = items.slice(0, limit);
     $('mp-list').innerHTML = items.length===0 ? '<div class="subtle" style="padding:14px 0;">Nothing matches. Try fewer words, or close this and use “+ Create New Material”.</div>' :
-      `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;">${shown.map(m=>`
+      (close ? `<div class="subtle" style="padding:2px 0 8px;">No exact match — showing close spellings.</div>` : '') + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;">${shown.map(m=>`
         <button type="button" data-mppick="${m.id}" style="display:flex;gap:10px;align-items:center;text-align:left;padding:8px;border:1px solid ${m.id===line.materialId?'var(--gold,#8A6D1B)':'var(--line)'};border-radius:9px;background:#fff;cursor:pointer;">
           ${matThumbHTML(m, 56)}
           <span style="min-width:0;"><b style="display:block;font-size:13.5px;line-height:1.25;">${esc(m.name)}</b><span class="subtle" style="font-size:12px;">${esc(m.size||'')}${m.category?(m.size?' · ':'')+esc(m.category):''}</span></span>
@@ -9902,7 +9932,63 @@ const STD_MATERIALS_V11 = [   // 18ga track + track sizes to match every stud
  ['Metal Framing','Metal Track 8" 20ga','16 ft','track'],
  ['Metal Framing','Metal Track 8" 20ga','20 ft','track'],
 ];
-const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3', MAT_SEED_MARKER4 = 'std-seeded-v4', MAT_SEED_MARKER5 = 'std-seeded-v5', MAT_SEED_MARKER6 = 'std-seeded-v6', MAT_SEED_MARKER7 = 'std-seeded-v7', MAT_SEED_MARKER8 = 'std-seeded-v8', MAT_SEED_MARKER9 = 'std-seeded-v9', MAT_SEED_MARKER10 = 'std-seeded-v10', MAT_SEED_MARKER11 = 'std-seeded-v11';
+const STD_MATERIALS_V12 = [   // vinyl baseboards (cove base), corners, PVC base, adhesive
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base Black','120 ft roll','vbase:2B2B2B'],
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base Black','4 ft piece','vbase:2B2B2B'],
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base Brown','120 ft roll','vbase:6B4E37'],
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base Brown','4 ft piece','vbase:6B4E37'],
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base Gray','120 ft roll','vbase:8E8E8E'],
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base Gray','4 ft piece','vbase:8E8E8E'],
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base Charcoal','120 ft roll','vbase:4A4B4D'],
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base Charcoal','4 ft piece','vbase:4A4B4D'],
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base White','120 ft roll','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base White','4 ft piece','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base Beige / Almond','120 ft roll','vbase:D9CBB0'],
+ ['Doors & Trim','Vinyl Baseboard 4" Cove Base Beige / Almond','4 ft piece','vbase:D9CBB0'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base Black','120 ft roll','vbase:2B2B2B'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base Black','4 ft piece','vbase:2B2B2B'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base Brown','120 ft roll','vbase:6B4E37'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base Brown','4 ft piece','vbase:6B4E37'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base Gray','120 ft roll','vbase:8E8E8E'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base Gray','4 ft piece','vbase:8E8E8E'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base Charcoal','120 ft roll','vbase:4A4B4D'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base Charcoal','4 ft piece','vbase:4A4B4D'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base White','120 ft roll','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base White','4 ft piece','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base Beige / Almond','120 ft roll','vbase:D9CBB0'],
+ ['Doors & Trim','Vinyl Baseboard 6" Cove Base Beige / Almond','4 ft piece','vbase:D9CBB0'],
+ ['Doors & Trim','Vinyl Baseboard 4" Straight / Toeless Black (for carpet)','120 ft roll','vbase:2B2B2B'],
+ ['Doors & Trim','Vinyl Baseboard 4" Straight / Toeless Gray (for carpet)','120 ft roll','vbase:8E8E8E'],
+ ['Doors & Trim','Vinyl Baseboard 4" Straight / Toeless White (for carpet)','120 ft roll','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl Baseboard 2-1/2" Cove Base Black','120 ft roll','vbase:2B2B2B'],
+ ['Doors & Trim','Vinyl Baseboard 2-1/2" Cove Base White','120 ft roll','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl Baseboard 4" Outside Corner Black (pre-formed)','each','vbase:2B2B2B'],
+ ['Doors & Trim','Vinyl Baseboard 4" Inside Corner Black (pre-formed)','each','vbase:2B2B2B'],
+ ['Doors & Trim','Vinyl Baseboard 4" Outside Corner Brown (pre-formed)','each','vbase:6B4E37'],
+ ['Doors & Trim','Vinyl Baseboard 4" Inside Corner Brown (pre-formed)','each','vbase:6B4E37'],
+ ['Doors & Trim','Vinyl Baseboard 4" Outside Corner Gray (pre-formed)','each','vbase:8E8E8E'],
+ ['Doors & Trim','Vinyl Baseboard 4" Inside Corner Gray (pre-formed)','each','vbase:8E8E8E'],
+ ['Doors & Trim','Vinyl Baseboard 4" Outside Corner White (pre-formed)','each','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl Baseboard 4" Inside Corner White (pre-formed)','each','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl Baseboard 6" Outside Corner Black (pre-formed)','each','vbase:2B2B2B'],
+ ['Doors & Trim','Vinyl Baseboard 6" Inside Corner Black (pre-formed)','each','vbase:2B2B2B'],
+ ['Doors & Trim','Vinyl Baseboard 6" Outside Corner Brown (pre-formed)','each','vbase:6B4E37'],
+ ['Doors & Trim','Vinyl Baseboard 6" Inside Corner Brown (pre-formed)','each','vbase:6B4E37'],
+ ['Doors & Trim','Vinyl Baseboard 6" Outside Corner Gray (pre-formed)','each','vbase:8E8E8E'],
+ ['Doors & Trim','Vinyl Baseboard 6" Inside Corner Gray (pre-formed)','each','vbase:8E8E8E'],
+ ['Doors & Trim','Vinyl Baseboard 6" Outside Corner White (pre-formed)','each','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl Baseboard 6" Inside Corner White (pre-formed)','each','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl (PVC) Baseboard 3-1/4" White (waterproof)','8 ft','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl (PVC) Baseboard 3-1/4" White (waterproof)','16 ft','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl (PVC) Baseboard 4-1/4" White (waterproof)','8 ft','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl (PVC) Baseboard 4-1/4" White (waterproof)','16 ft','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl (PVC) Baseboard 5-1/4" White (waterproof)','8 ft','vbase:F4F4F1'],
+ ['Doors & Trim','Vinyl (PVC) Baseboard 5-1/4" White (waterproof)','16 ft','vbase:F4F4F1'],
+ ['Doors & Trim','Cove Base Adhesive (vinyl baseboard)','30 oz cartridge','tube'],
+ ['Doors & Trim','Cove Base Adhesive (vinyl baseboard)','1 gal','bucket'],
+ ['Doors & Trim','Cove Base Adhesive (vinyl baseboard)','4 gal pail','bucket'],
+];
+const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3', MAT_SEED_MARKER4 = 'std-seeded-v4', MAT_SEED_MARKER5 = 'std-seeded-v5', MAT_SEED_MARKER6 = 'std-seeded-v6', MAT_SEED_MARKER7 = 'std-seeded-v7', MAT_SEED_MARKER8 = 'std-seeded-v8', MAT_SEED_MARKER9 = 'std-seeded-v9', MAT_SEED_MARKER10 = 'std-seeded-v10', MAT_SEED_MARKER11 = 'std-seeded-v11', MAT_SEED_MARKER12 = 'std-seeded-v12';
 function matList(){ return DB.materials.filter(m=>!m.system); }
 /* Material picker for the Pricing Calculator: full scrolling list, or filtered while you type in the search box */
 function matOptionsHTML(selectedId, query){
@@ -9969,6 +10055,8 @@ function matIconSVG(key){
    block:()=>f(`<rect x="5" y="11" width="30" height="18" fill="#B9B9B9" stroke="#7E7E7E" stroke-width="1.5"/><rect x="10" y="16" width="7" height="8" fill="#8E8E8E"/><rect x="23" y="16" width="7" height="8" fill="#8E8E8E"/>`),
    box:()=>f(`<path d="M6 13l14-6 14 6v16l-14 6-14-6z" fill="#D9B27C" stroke="#8B6232" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 13l14 6 14-6M20 19v16" stroke="#8B6232" fill="none"/>`),
   };
+  const vb = /^vbase:([0-9a-fA-F]{6})$/.exec(key||'');
+  if(vb) return f(`<path d="M8 8h6v20c0 2 1.5 3.5 3.5 3.5H33v3H14.5C10.9 34.5 8 31.6 8 28z" fill="#${vb[1]}" stroke="#7a7a7a" stroke-width="1.2" stroke-linejoin="round"/><path d="M11 10v17" stroke="rgba(255,255,255,.35)" stroke-width="1.2"/>`);
   const pc = /^paint:([0-9a-fA-F]{6})$/.exec(key||'');
   if(pc) return f(`<path d="M9 14h22v18a3 3 0 0 1-3 3H12a3 3 0 0 1-3-3z" fill="#EEE" stroke="#8A8A8A" stroke-width="1.5"/><path d="M9 14h22v-3H9z" fill="#${pc[1]}" stroke="#8A8A8A"/><rect x="12" y="18" width="16" height="12" rx="1" fill="#${pc[1]}" stroke="#8A8A8A" stroke-width=".8"/>`);
   return (m[key]||m.box)();
@@ -9981,7 +10069,7 @@ function matThumbHTML(m, size){
 async function seedStandardMaterials(force){
   const have = new Set(DB.materials.map(m=>m.id));
   const offline = (typeof navigator!=='undefined' && navigator.onLine===false);
-  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2}, {marker:MAT_SEED_MARKER3, items:STD_MATERIALS_V3}, {marker:MAT_SEED_MARKER4, items:STD_MATERIALS_V4}, {marker:MAT_SEED_MARKER5, items:STD_MATERIALS_V5}, {marker:MAT_SEED_MARKER6, items:STD_MATERIALS_V6}, {marker:MAT_SEED_MARKER7, items:STD_MATERIALS_V7}, {marker:MAT_SEED_MARKER8, items:STD_MATERIALS_V8}, {marker:MAT_SEED_MARKER9, items:STD_MATERIALS_V9}, {marker:MAT_SEED_MARKER10, items:STD_MATERIALS_V10}, {marker:MAT_SEED_MARKER11, items:STD_MATERIALS_V11} ];
+  const batches = [ {marker:MAT_SEED_MARKER, items:STD_MATERIALS}, {marker:MAT_SEED_MARKER2, items:STD_MATERIALS_V2}, {marker:MAT_SEED_MARKER3, items:STD_MATERIALS_V3}, {marker:MAT_SEED_MARKER4, items:STD_MATERIALS_V4}, {marker:MAT_SEED_MARKER5, items:STD_MATERIALS_V5}, {marker:MAT_SEED_MARKER6, items:STD_MATERIALS_V6}, {marker:MAT_SEED_MARKER7, items:STD_MATERIALS_V7}, {marker:MAT_SEED_MARKER8, items:STD_MATERIALS_V8}, {marker:MAT_SEED_MARKER9, items:STD_MATERIALS_V9}, {marker:MAT_SEED_MARKER10, items:STD_MATERIALS_V10}, {marker:MAT_SEED_MARKER11, items:STD_MATERIALS_V11}, {marker:MAT_SEED_MARKER12, items:STD_MATERIALS_V12} ];
   const added = [];
   for(const bt of batches){
     if(!force){ if(have.has(bt.marker)) continue; if(offline) continue; }   // never seed from an empty offline cache
@@ -12124,6 +12212,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-b</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-c</div>
 </body>
 </html>
