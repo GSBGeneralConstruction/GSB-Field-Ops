@@ -335,7 +335,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.19-i';
+const APP_VERSION = 'v2026.11.19-j';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -8344,7 +8344,7 @@ function estimateForm(d){
 
 function estimatesListView(){
   const lostAll = DB.estimates.filter(e=>e.lost);
-  const list = [...DB.estimates].filter(e=> STATE.showLost ? !!e.lost : (!e.archived && !e.lost)).sort((a,b)=>String(b.dateCreated||'').localeCompare(String(a.dateCreated||'')));
+  const list = [...DB.estimates].filter(e=> STATE.showLost ? !!e.lost : (!e.archived && !e.lost && !DB.contracts.some(c=>c.estimateId===e.id && recSigned('contracts', c)))).sort((a,b)=>String(b.dateCreated||'').localeCompare(String(a.dateCreated||'')));
   const foot = (lostAll.length || STATE.showLost) ? `<div style="text-align:center;margin-top:10px;"><button class="btn ghost small" data-action="toggle-show-lost">${STATE.showLost ? '← Back to estimates' : '👎 Didn\'t move forward ('+lostAll.length+')'}</button></div>` : '';
   return `${STATE.showLost ? '' : dupCleanupHTML()}${STATE.showLost ? '<div class="banner-note" style="margin-bottom:10px;">Estimates where the client didn\'t move forward. Open one to see why — or to undo it if they come back.</div>' : ''}<div class="card" style="padding:8px 20px;">
     ${list.length===0 ? emptyState('No estimates yet','') : list.map(e=>`
@@ -8819,7 +8819,12 @@ function dupCleanupHTML(){ const d = docDuplicates(); if(!d.length) return '';
   const nE = d.filter(x=>x.kind==='estimate').length, nC = d.filter(x=>x.kind==='contract').length;
   return `<div class="banner-note" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border-color:#B8863A;"><span>🧹 Found <b>${[nE?nE+' extra estimate'+(nE===1?'':'s'):'', nC?nC+' extra contract'+(nC===1?'':'s'):''].filter(Boolean).join(' and ')}</b> — older copies of the same job that were never signed.</span><button class="btn small" data-action="dedupe-docs">Remove the extra copies</button></div>`; }
 function contractsListView(){
-  const list = [...DB.contracts].filter(c=>(!c.archived || recSigned('contracts', c)) && !(c.status!=='signed' && (c.lost || DB.estimates.some(e=>e.id===c.estimateId && e.lost)))).sort((a,b)=>String(b.signedAt||b.dateCreated||'').localeCompare(String(a.signedAt||a.dateCreated||'')));
+  const all = [...DB.contracts].filter(c=>(!c.archived || recSigned('contracts', c)) && !(c.status!=='signed' && (c.lost || DB.estimates.some(e=>e.id===c.estimateId && e.lost)))).sort((a,b)=>String(b.signedAt||b.dateCreated||'').localeCompare(String(a.signedAt||a.dateCreated||'')));
+  const weekAgo = new Date(Date.now() - 7*86400000).toISOString();
+  const signedAll = all.filter(c=>recSigned('contracts', c));
+  const signedRecent = signedAll.filter(c=>String(c.signedAt||'') >= weekAgo);
+  const list = all.filter(c=>!recSigned('contracts', c));
+  const signedShown = STATE.showAllSigned ? signedAll : signedRecent;
   const ready = signedEstimatesReady();
   const readyHtml = ready.length ? `
     <div class="section-label" style="margin-top:0;">Signed Estimates — Ready to Build a Contract</div>
@@ -8837,7 +8842,7 @@ function contractsListView(){
     </div>
     <div class="section-label">Contracts</div>` : '';
   return dupCleanupHTML() + readyHtml + `<div class="card" style="padding:8px 20px;">
-    ${list.length===0 ? emptyState('No contracts yet', ready.length ? 'Tap "Build Contract" on a signed estimate above.' : 'A contract is built automatically each time you save an estimate.') : list.map(c=>`
+    ${list.length===0 ? (signedAll.length ? `<div class="subtle" style="padding:14px 0;">✓ Nothing waiting — every contract here is signed.</div>` : emptyState('No contracts yet', ready.length ? 'Tap "Build Contract" on a signed estimate above.' : 'A contract is built automatically each time you save an estimate.')) : list.map(c=>`
       <div class="list-row">
         <div class="main"><b>${esc(c.clientName)}</b>${c.jobName?` <span style="color:var(--muted);font-size:13px"> — ${esc(c.jobName)}</span>`:''}<div class="meta">${fmtDate(c.date)} &nbsp;·&nbsp; Total ${money(c.pricing.total)}</div></div>
         <div style="display:flex;gap:8px;align-items:center;">
@@ -8846,7 +8851,19 @@ function contractsListView(){
           <button class="btn ghost small" data-action="del-contract" data-id="${c.id}">Delete</button>
         </div>
       </div>`).join('')}
-  </div>`;
+  </div>${signedAll.length ? `
+  <div class="section-label" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+    <span>${STATE.showAllSigned ? 'All signed contracts ('+signedAll.length+')' : 'Recently signed — last 7 days'+(signedRecent.length?' ('+signedRecent.length+')':'')}</span>
+    ${signedAll.length > signedRecent.length || STATE.showAllSigned ? `<button class="btn ghost small" data-action="toggle-all-signed">${STATE.showAllSigned ? 'Show only the last 7 days' : 'Show all '+signedAll.length+' signed'}</button>` : ''}
+  </div>
+  <div class="card" style="padding:4px 20px;background:#FBFAF6;">
+    ${signedShown.length ? signedShown.map(c=>`
+      <div class="list-row" style="padding:8px 0;">
+        <div class="main"><b>${esc(c.clientName)}</b>${c.jobName?` <span style="color:var(--muted);font-size:13px"> — ${esc(c.jobName)}</span>`:''}<div class="meta">Signed ${fmtDate(String(c.signedAt||'').slice(0,10))} &nbsp;·&nbsp; Total ${money(c.pricing.total)}</div></div>
+        <div style="display:flex;gap:8px;align-items:center;"><span class="tag reviewed">${c.signedOnPaper?'SIGNED ON PAPER':'SIGNED'}</span><button class="btn ghost small" data-action="view-contract" data-id="${c.id}">Open</button></div>
+      </div>`).join('') : `<div class="subtle" style="padding:10px 0;">Nothing signed in the last 7 days.</div>`}
+    <div class="subtle" style="font-size:12px;padding:6px 0 10px;">Signed contracts are always kept with the client — <b>Clients</b> → the client → their project.</div>
+  </div>` : ''}`;
 }
 
 function guessCounty(address){
@@ -11467,6 +11484,7 @@ Office@gsbconstructions.com`);
     STATE.modal = null;
     render();
   }));
+  bindClick('toggle-all-signed', ()=>{ STATE.showAllSigned = !STATE.showAllSigned; render(); });
   document.querySelectorAll('[data-action="dedupe-docs"]').forEach(el=>el.addEventListener('click', async ()=>{
     const d = docDuplicates(); if(!d.length) return;
     const lines = d.map(x=>'• '+(x.kind==='estimate'?'Estimate':'Contract')+' — '+(x.rec.clientName||'')+(x.rec.jobName?' ('+x.rec.jobName+')':'')+' · '+fmtDate(String(x.rec.dateCreated||x.rec.date||'').slice(0,10))+' · '+money(x.kind==='estimate'?totalEstimate(x.rec):(x.rec.pricing&&x.rec.pricing.total)||0)).join('\n');
@@ -12728,6 +12746,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-i</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-j</div>
 </body>
 </html>
