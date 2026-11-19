@@ -335,7 +335,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.19-g';
+const APP_VERSION = 'v2026.11.19-h';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -8097,7 +8097,7 @@ function estimateDocHTML(e, opts){
     <div class="est-small">${np ? esc(NOPERMIT_TXT[lang==='fr'?'fr':'en']) : TR(lang,'Permit fees charged by the city or county are not included — see Section 4.')}</div>
 
     <div class="est-h">${TR(lang,"3. What's Included / Not Included")}</div>
-    <div class="est-box">${(()=>{ const src = getLegalDoc('estimate-included'+(lang==='fr'?'-fr':'')).content; const s1 = e.signedAt ? src : addCleanupToEstimateIncluded(src, lang); return parseLiteMarkup(np ? npEstimateIncluded(s1, lang) : s1); })()}</div>
+    <div class="est-box">${(()=>{ const src = getLegalDoc('estimate-included'+(lang==='fr'?'-fr':'')).content; const s1 = e.signedAt ? src : ownerItemsWording(addCleanupToEstimateIncluded(src, lang), lang, !!(e.owner && String(e.owner).trim())); return parseLiteMarkup(np ? npEstimateIncluded(s1, lang) : s1); })()}</div>
 
     ${np ? '' : `<div class="est-h">${TR(lang,'4. Permits — How They Work')}</div>
     <div class="est-box">${parseLiteMarkup(getLegalDoc('estimate-permits'+(lang==='fr'?'-fr':'')).content)}</div>`}
@@ -8811,6 +8811,24 @@ function addCleanupToContractPage1(src, lang){
   const anchor = lang==='fr' ? '\n\n**Démolition' : '\n\n**Demolition';
   const i = src.indexOf(anchor);
   return i>=0 ? src.slice(0,i) + '\n\n' + t + src.slice(i) : src.replace(/\s*$/,'') + '\n\n' + t;
+}
+/* Who supplies what: everything in the Scope of Work is supplied by GSB — only items under "Owner-Provided Items" come from the Owner (new estimates only; signed ones keep their wording) */
+function ownerItemsWording(src, lang, hasOwner){
+  const fr = lang==='fr';
+  const oldInc = fr ? "- Toute la main-d'œuvre et tous les matériaux nécessaires pour exécuter les travaux énumérés dans la description des travaux, sauf les articles indiqués comme fournis par le Propriétaire."
+                    : "- All labor and materials needed to complete the work listed in the Scope of Work, except items listed as Owner-Provided.";
+  const oldNot = fr ? "- Les articles fournis par le Propriétaire indiqués dans la description des travaux."
+                    : "- Owner-Provided Items listed in the Scope of Work.";
+  const newInc = hasOwner
+    ? (fr ? "- Toute la main-d'œuvre et tous les matériaux pour les travaux énumérés dans la description des travaux, sauf les articles énumérés sous « Articles fournis par le Propriétaire ». Si les travaux mentionnent de nouveaux articles (par exemple, de nouvelles portes), c'est GSB qui les fournit."
+          : "- All labor and materials for the work listed in the Scope of Work, except the items listed under \"Owner-Provided Items\". If the scope lists new items (for example, new doors), GSB supplies them.")
+    : (fr ? "- Toute la main-d'œuvre et tous les matériaux pour les travaux énumérés dans la description des travaux. Si les travaux mentionnent de nouveaux articles (par exemple, de nouvelles portes), c'est GSB qui les fournit."
+          : "- All labor and materials for the work listed in the Scope of Work. If the scope lists new items (for example, new doors), GSB supplies them.");
+  const newNot = hasOwner
+    ? (fr ? "- Seulement les articles énumérés sous « Articles fournis par le Propriétaire » — le Propriétaire les fournit. Tout le reste de la description des travaux est fourni par GSB."
+          : "- Only the items listed under \"Owner-Provided Items\" — the Owner supplies those. Everything else in the Scope of Work is supplied by GSB.")
+    : null;
+  return String(src||'').split('\n').map(l=> l.trim()===oldInc ? newInc : l.trim()===oldNot ? newNot : l).filter(l=>l!==null).join('\n');
 }
 function addCleanupToEstimateIncluded(src, lang){
   const t = CLEANUP_ESTIMATE[lang==='fr' ? 'fr' : 'en'];
@@ -12600,6 +12618,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-g</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-h</div>
 </body>
 </html>
