@@ -263,6 +263,13 @@ table.hist td{padding:7px 6px;border-bottom:1px solid var(--line);vertical-align
 .boot-spinner{width:34px;height:34px;border:3px solid rgba(255,255,255,0.25);border-top-color:#fff;border-radius:50%;animation:boot-spin 0.8s linear infinite;margin-bottom:6px;}
 @keyframes boot-spin{to{transform:rotate(360deg);}}
 #boot-status{font-family:'IBM Plex Mono',monospace;font-size:12px;color:#E7E1CF;margin-top:12px;min-height:16px;}
+.sn-box{border:1px solid var(--line);border-radius:9px;background:#FBFAF6;padding:10px 12px;margin:0 0 12px;}
+.sn-h{font-weight:700;font-size:13.5px;margin-bottom:6px;} .sn-h span{font-weight:500;color:var(--muted);font-size:12px;}
+.sn-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 8px;background:#fff;border:1px solid var(--line);border-radius:7px;margin:4px 0;font-size:13.5px;}
+.sn-row button{background:none;border:0;color:#A33;font-weight:700;font-size:15px;cursor:pointer;padding:2px 6px;}
+.sn-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;} .sn-chips button{background:#F3EFE4;border:1px solid #E1D8C2;border-radius:15px;padding:6px 11px;font:600 12.5px Inter,sans-serif;color:#4a3f27;cursor:pointer;}
+.sn-own{display:flex;gap:6px;} .sn-own input{flex:1;min-width:0;padding:9px 10px;border:1px solid var(--line);border-radius:7px;font-size:16px;}
+
 .banner-note{background:var(--brown-light);border:1px solid var(--line);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--brown-dark);margin-bottom:18px;}
 .photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-top:12px;}
 .photo-card{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;}
@@ -328,7 +335,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.19-f';
+const APP_VERSION = 'v2026.11.19-g';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -1154,6 +1161,31 @@ function scheduleDraftAutosave(){
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden && STATE.view==='onsite' && STATE.subtab.onsite==='new' && document.getElementById('os-clientName')) saveWorksheetDraft(true); });
 window.addEventListener('pagehide', ()=>{ try{ if(STATE.view==='onsite' && STATE.subtab.onsite==='new' && document.getElementById('os-clientName')) saveWorksheetDraft(true); }catch(e){} });
 setInterval(()=>{ try{ if(STATE.user && STATE.view==='onsite' && STATE.subtab.onsite==='new' && document.getElementById('os-clientName') && !document.querySelector('.sketch-overlay')){ const f = collectWorksheetForm(); if(worksheetHasContent(f)) saveWorksheetDraft(true); } }catch(e){} }, 15000);
+/* copies of the same worksheet that add nothing the newest copy doesn't already have */
+function draftDuplicates(){
+  const txt = ['clientName','jobName','propertyAddress','phone','propType','age','demo','constr','ep','measure','owner','followup'];
+  const norm = v=>String(v||'').trim().toLowerCase();
+  const groups = {};
+  (DB.onsiteDrafts||[]).forEach(d=>{ const k = norm(d.clientName)+'|'+norm(d.propertyAddress)+'|'+norm(d.phone); if(k==='||') return; (groups[k] = groups[k] || []).push(d); });
+  const dups = [];
+  Object.values(groups).forEach(g=>{ if(g.length < 2) return;
+    g.sort((a,b)=>(b.savedAt||'').localeCompare(a.savedAt||'')); const keep = g[0];
+    g.slice(1).forEach(d=>{
+      if(d.id===STATE.newDraftId) return;
+      const textOk = txt.every(k=>!norm(d[k]) || norm(d[k])===norm(keep[k]));
+      const listsOk = (d.subs||[]).every(x=>(keep.subs||[]).includes(x)) && (d.flags||[]).every(x=>(keep.flags||[]).includes(x));
+      const filesOk = (!d.floorPlan || !!keep.floorPlan) && (d.photos||[]).length <= (keep.photos||[]).length && (d.beforePhotos||[]).length <= (keep.beforePhotos||[]).length && (d.planFiles||[]).length <= (keep.planFiles||[]).length;
+      if(textOk && listsOk && filesOk) dups.push(d);
+    }); });
+  return dups;
+}
+async function removeDraftDuplicates(){
+  const dups = draftDuplicates(); if(!dups.length){ showToast('No duplicate copies found'); return; }
+  if(!confirm('Remove '+dups.length+' duplicate cop'+(dups.length===1?'y':'ies')+'?\n\nOnly copies that have nothing the newest copy doesn\'t already have are removed — the newest copy of each worksheet stays.')) return;
+  for(const d of dups){ DB.onsiteDrafts = DB.onsiteDrafts.filter(x=>x.id!==d.id); try{ deleteRecord('onsiteDrafts', d.id); }catch(e){} }
+  const panel = document.getElementById('drafts-panel'); if(panel) panel.outerHTML = draftsPanelHTML();
+  showToast('🧹 Removed '+dups.length+' duplicate cop'+(dups.length===1?'y':'ies'));
+}
 function draftsPanelHTML(){
   const list = [...DB.onsiteDrafts].sort((a,b)=>(b.savedAt||'').localeCompare(a.savedAt||''));
   const checkRow = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;"><button class="btn ghost small" data-action="pull-now">☁️ Check for worksheets saved on other devices</button><span id="pull-status" class="subtle" style="font-size:12px;">${esc((STATE.pullStatus||'')+(STATE.pullTime?' · checked '+STATE.pullTime.toLocaleTimeString([], {hour:'numeric',minute:'2-digit',second:'2-digit'}):''))}</span></div>`;
@@ -1162,7 +1194,7 @@ function draftsPanelHTML(){
     <div class="section-label" style="margin-top:0;">Saved Drafts (${list.length})</div>
     ${list.map(d=>`<div class="list-row" style="padding:8px 0;"><div class="main"><div class="pname">${esc(d.clientName||'(no name yet)')}${d.jobName?' — '+esc(d.jobName):''} ${d.id===STATE.newDraftId?'<span class="tag reviewed">Open now</span>':''} ${d.floorPlan?'<span class="tag category">✏️ has sketch</span>':'<span class="tag pending">no sketch</span>'}</div><div class="meta">Saved ${fmtDateTime(d.savedAt)}${d.deviceName?' on the '+esc(d.deviceName):''}${d.propertyAddress?' · '+esc(d.propertyAddress):''}</div></div>
       <div style="display:flex;gap:6px;">${d.id===STATE.newDraftId?'':`<button class="btn small" data-action="continue-draft" data-id="${d.id}">Continue</button>`}<button class="btn ghost small" data-action="del-draft" data-id="${d.id}">Delete</button></div></div>`).join('')}
-    <div style="margin-top:8px;"><button class="btn ghost small" data-action="blank-worksheet">+ Start a Blank Worksheet</button></div>${checkRow}
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn ghost small" data-action="blank-worksheet">+ Start a Blank Worksheet</button>${(()=>{ const n = draftDuplicates().length; return n ? `<button class="btn ghost small" data-action="dedupe-drafts">🧹 Remove ${n} duplicate cop${n===1?'y':'ies'}</button>` : ''; })()}</div>${checkRow}
   </div>`;
 }
 const WS_MIRROR_KEY='gsb-ws-mirror';
@@ -1213,8 +1245,9 @@ async function continueDraft(id){
   const cur = collectWorksheetForm();
   if(worksheetHasContent(cur)) await saveWorksheetDraft(true);     // keep whatever is open now
   const d = DB.onsiteDrafts.find(x=>x.id===id); if(!d) return;
-  // a draft made on ANOTHER device is copied, so editing it here can never overwrite the original over there
-  STATE.newDraftId = (d.deviceId && d.deviceId !== DEVICE_ID) ? uid() : d.id;
+  // always the SAME draft — copying it made a new duplicate every time "Continue" was tapped
+  // (the iPad's home-screen app, the app wrapper and Safari can each look like a different device)
+  STATE.newDraftId = d.id;
   STATE.newOnsitePhotos = (d.photos||[]).slice(); STATE.newOnsiteBeforePhotos = (d.beforePhotos||[]).slice();
   STATE.newPlanFiles = (d.planFiles||[]).slice(); STATE.newOnsiteFloorPlan = d.floorPlan || null;
   STATE._fpRemoved = false; STATE.pendingDraftFill = d.id; render();
@@ -1235,6 +1268,7 @@ document.addEventListener('click', (e)=>{
   const c = e.target.closest('[data-action="continue-draft"]'); if(c){ continueDraft(c.dataset.id); return; }
   const d = e.target.closest('[data-action="del-draft"]'); if(d){ deleteDraft(d.dataset.id); return; }
   const n = e.target.closest('[data-action="blank-worksheet"]'); if(n){ blankWorksheet(); return; }
+  const dd = e.target.closest('[data-action="dedupe-drafts"]'); if(dd){ removeDraftDuplicates(); return; }
   const pn = e.target.closest('[data-action="pull-now"]'); if(pn){ STATE.pullStatus='Checking…'; pullStatusPaint(); pullFromCloud(true); return; }
 });
 
@@ -1349,6 +1383,7 @@ function contractContentFingerprint(c){
     demo:c.demo, constr:c.constr, ep:c.ep, owner:c.owner,
     total:c.pricing.total, p1:c.pricing.p1, p2:c.pricing.p2, p3:c.pricing.p3, p4:c.pricing.p4, p5:c.pricing.p5, p6:c.pricing.p6, p7:c.pricing.p7,
     pl: c.payLabels ? JSON.stringify(c.payLabels) : undefined, county: c.county || undefined,
+    sn: siteNotesOf(c).length ? JSON.stringify(siteNotesOf(c)) : undefined, np: c.noPermits ? 1 : undefined,
     fr: (c.scopeFr && Object.values(c.scopeFr).some(v=>v && String(v).trim())) ? JSON.stringify(c.scopeFr) : undefined,
   }));
 }
@@ -1359,6 +1394,7 @@ function estimateContentFingerprint(e){
     permit:e.pricing.permit, edemo:e.pricing.demo, econstr:e.pricing.constr, eep:e.pricing.ep, fin:(e.finishes||[]).map(x=>x.name+':'+x.price), lf:(e.laborFlats||[]).map(x=>x.name+':'+x.price),
     fr: (e.scopeFr && Object.values(e.scopeFr).some(v=>v && String(v).trim())) ? JSON.stringify(e.scopeFr) : undefined,
     np: e.noPermits ? 1 : undefined,
+    sn: siteNotesOf(e).length ? JSON.stringify(siteNotesOf(e)) : undefined,
   }));
 }
 async function loadPublicSignPage(token){
@@ -8010,6 +8046,7 @@ const EST_DOC_CSS = `<style>
   .est-doc .est-h{font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#7A6A45;border-bottom:1px solid #ddd;padding-bottom:3px;margin:16px 0 6px;}
   .est-doc .est-sub{font-weight:700;font-size:13px;margin:8px 0 2px;}
   .est-doc .est-ol{margin:2px 0 6px;padding-left:22px;} .est-doc .est-ol li{margin:2px 0;}
+  .est-doc .est-ul{margin:2px 0 6px;padding-left:22px;} .est-doc .est-ul li{margin:2px 0;}
   .est-doc .est-p{margin:2px 0 6px;}
   .est-doc table.est-price{width:100%;border-collapse:collapse;margin:4px 0;}
   .est-doc table.est-price td{padding:7px 6px;border-bottom:1px solid #ddd;vertical-align:top;}
@@ -8050,6 +8087,7 @@ function estimateDocHTML(e, opts){
 
     <div class="est-h">${TR(lang,'1. Scope of Work — exactly what we will do')}</div>
     ${parts.length ? parts.map(x=>`<div class="est-sub">${esc(x[0])}</div>${scopeListHTML(x[1])}`).join('') : `<p class="est-p">${TR(lang,'Nothing noted.')}</p>`}
+    ${siteNotesDocHTML(e, lang)}
 
     <div class="est-h">${TR(lang,'2. Your Price')}</div>
     <table class="est-price">
@@ -8090,7 +8128,7 @@ function newContractFromEstimate(e){
     jobName:e.jobName||'', clientName:e.clientName, clientPhone:e.clientPhone, clientEmail:e.clientEmail, address:e.address, demo:e.demo, constr:e.constr, ep:e.ep, owner:e.owner||'',
     pricing:paymentSchedule(total), county:guessCounty(e.address), payLabels:Object.assign({}, payLabelsFor({demo:e.demo})), photoReleaseOptOut:false,
     signature:null, signedAt:null, pageInitials:{}, sentRemote:false, sentRemoteAt:null,
-    lang: e.lang || 'en', scopeFr: e.scopeFr ? JSON.parse(JSON.stringify(e.scopeFr)) : undefined, noPermits: !!e.noPermits };
+    lang: e.lang || 'en', scopeFr: e.scopeFr ? JSON.parse(JSON.stringify(e.scopeFr)) : undefined, noPermits: !!e.noPermits, siteNotes: siteNotesOf(e).map(n=>({en:n.en, fr:n.fr||''})) };
 }
 function printEstimateAndContract(e, c){
   const cs = legalSlotSettings('construction');
@@ -8113,6 +8151,7 @@ function docsReadyView(d){
     <div class="banner-note">✓ Both documents are ready${e.jobName?' for <b>'+esc(e.jobName)+'</b>':''}. Total: <b>${money(totalEstimate(e))}</b>.<br>
       Have the client sign on the iPad (open each one), send them a link, or print both and have them sign on paper. For paper: after they sign, open each document → <b>Signed on paper instead?</b> → take a photo of each page → <b>Mark as Signed on Paper</b>.</div>
     ${permitToggleHTML('estimate', e)}
+    ${siteNotesEditorHTML('estimate', e)}
     <div style="display:flex;justify-content:flex-end;margin:4px 0 14px;"><button class="btn" data-action="print-both" data-id="${e.id}">🖨 Print Both for Signing</button></div>
     ${card('1. Project Estimate', 'The price — short and simple (about 2 pages).', st(!!e.signedAt, e.signedOnPaper),
       `<button class="btn small" data-action="view-estimate" data-id="${e.id}">Open / Sign on iPad</button>
@@ -8423,6 +8462,64 @@ function npContractPage(n, src, lang){
                       .split('Le Propriétaire est responsable de tous les frais de permis, ainsi que de l\'achat').join('Le Propriétaire est responsable de l\'achat');
   return src;
 }
+/* optional notes like "A scissor lift will be delivered to the job site" — added / removed per job, only shown when there are some */
+const SITE_NOTE_PRESETS = [
+  { k:'lift',   chip:'Scissor lift delivered', en:'A scissor lift will be delivered to the job site.', fr:'Une plateforme élévatrice à ciseaux sera livrée au chantier.' },
+  { k:'dump',   chip:'Dumpster delivered',     en:'A dumpster will be delivered to the job site for construction debris.', fr:'Un conteneur à déchets sera livré au chantier pour les débris de construction.' },
+  { k:'mats',   chip:'Materials delivered',    en:'Materials will be delivered to the job site.', fr:'Les matériaux seront livrés au chantier.' },
+  { k:'toilet', chip:'Portable toilet',        en:'A portable toilet will be delivered to the job site.', fr:'Une toilette portative sera livrée au chantier.' },
+  { k:'hours',  chip:'Work hours',             en:'Work hours: Monday to Friday, 8:00 AM to 5:00 PM, or as allowed by the building.', fr:'Heures de travail : du lundi au vendredi, de 8 h à 17 h, ou selon ce que l\'immeuble permet.' },
+  { k:'protect',chip:'Floor & elevator protection', en:'Floor protection and elevator padding will be used in common areas.', fr:'Des protections de plancher et d\'ascenseur seront utilisées dans les aires communes.' },
+  { k:'sched',  chip:'Deliveries scheduled ahead', en:'Deliveries will be scheduled ahead of time with the Owner or building management.', fr:'Les livraisons seront planifiées à l\'avance avec le Propriétaire ou la gestion de l\'immeuble.' },
+];
+function siteNotesOf(x){ return Array.isArray(x && x.siteNotes) ? x.siteNotes.filter(n=>n && String(n.en||'').trim()) : []; }
+function siteNotesDocHTML(x, lang, style){
+  const list = siteNotesOf(x); if(!list.length) return '';
+  const head = lang==='fr' ? 'Notes sur le chantier' : 'Job Site Notes';
+  const items = list.map(n=> (lang==='fr' && n.fr) ? n.fr : n.en);
+  if(style==='summary') return `<div style="font-weight:bold;font-size:12px;margin:10px 0 3px;">${head}</div><ul style="margin:0 0 0 18px;padding:0;font-size:12.5px;">${items.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`;
+  return `<div class="est-sub">${head}</div><ul class="est-ul">${items.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`;
+}
+function siteNotesEditorHTML(kind, x){
+  if(!x || x.id==='preview') return '';
+  const signed = kind==='estimate' ? !!x.signedAt : kind==='contract' ? x.status==='signed' : false;
+  if(signed) return '';
+  const list = siteNotesOf(x), have = new Set(list.map(n=>n.en));
+  // rentals on this job's calculator become one-tap suggestions too
+  const f = kind==='onsite' ? x : DB.onsite.find(o=>o.id===(x.onsiteId||''));
+  const rent = ((f && f.pricingBreakdown && f.pricingBreakdown.rentalLines) || []).map(l=>String(l.name||'').trim()).filter(Boolean)
+    .map(nm=>{ const t = nm.toLowerCase();
+      const pre = /lift/.test(t) ? 'lift' : /dumpster|roll.?off|container/.test(t) ? 'dump' : /toilet|porta/.test(t) ? 'toilet' : '';
+      if(pre) return SITE_NOTE_PRESETS.find(p=>p.k===pre);
+      return { chip:nm+' delivered', en:'A '+t.replace(/^an? /,'')+' will be delivered to the job site.', fr:'Location livrée au chantier : '+nm+'.' }; });
+  const sugg = rent.concat(SITE_NOTE_PRESETS).filter((p,i,a)=>!have.has(p.en) && a.findIndex(q=>q.en===p.en)===i);
+  const sid = 'sn-in-'+kind+'-'+x.id;
+  return `<div class="sn-box">
+    <div class="sn-h">📌 Job site notes <span>— optional · shown on the estimate &amp; contract only when you add some</span></div>
+    ${list.length ? `<div class="sn-list">${list.map((n,i)=>`<div class="sn-row"><span>• ${esc(n.en)}</span><button type="button" data-action="sn-del" data-kind="${kind}" data-id="${x.id}" data-i="${i}" title="Remove">✕</button></div>`).join('')}</div>` : ''}
+    ${sugg.length ? `<div class="sn-chips">${sugg.map(p=>`<button type="button" data-action="sn-add" data-kind="${kind}" data-id="${x.id}" data-en="${esc(p.en)}" data-fr="${esc(p.fr||'')}">＋ ${esc(p.chip)}</button>`).join('')}</div>` : ''}
+    <div class="sn-own"><input id="${sid}" placeholder="Or type your own note (e.g. Work is done after hours)" autocomplete="off"><button type="button" class="btn small" data-action="sn-add-own" data-kind="${kind}" data-id="${x.id}" data-input="${sid}">Add</button></div>
+  </div>`;
+}
+/* the worksheet, its estimate and its contract share one list (signed papers keep what they signed) */
+async function updateSiteNotes(kind, id, fn){
+  let f = null, e = null, c = null;
+  if(kind==='onsite') f = DB.onsite.find(x=>x.id===id);
+  if(kind==='estimate') e = DB.estimates.find(x=>x.id===id);
+  if(kind==='contract') c = DB.contracts.find(x=>x.id===id);
+  if(c && !e && c.estimateId) e = DB.estimates.find(x=>x.id===c.estimateId);
+  if(e && !c) c = DB.contracts.find(x=>x.estimateId===e.id);
+  if(!f){ const oid = (e && e.onsiteId) || (c && c.onsiteId); if(oid) f = DB.onsite.find(x=>x.id===oid); }
+  if(f && !e){ e = DB.estimates.filter(x=>x.onsiteId===f.id && !x.signedAt).slice(-1)[0] || null; if(e && !c) c = DB.contracts.find(x=>x.estimateId===e.id); }
+  const src = kind==='onsite' ? f : kind==='estimate' ? e : c;
+  const next = fn(siteNotesOf(src).map(n=>({en:n.en, fr:n.fr||''})));
+  const jobs = [];
+  if(f){ f.siteNotes = next.slice(); jobs.push(saveRecord('onsite', f)); }
+  if(e && !e.signedAt){ e.siteNotes = next.slice(); jobs.push(saveRecord('estimates', e)); }
+  if(c && c.status!=='signed'){ c.siteNotes = next.slice(); jobs.push(saveRecord('contracts', c)); }
+  try{ await Promise.all(jobs); }catch(err){}
+  return { f, e, c };
+}
 function permitToggleHTML(kind, x){
   if(!x || x.id==='preview') return '';
   const signed = kind==='estimate' ? !!x.signedAt : kind==='contract' ? x.status==='signed' : false;
@@ -8454,11 +8551,11 @@ function contractScopeHTML(c, lang){
   const permitNote = `<div class="subtle" style="margin-top:10px;"><b>${TR(lang,'Permits:')}</b> ${esc(permitNoteText(c, lang))}</div>`;
   if(c && c.status!=='signed'){
     const parts2 = estimateScopeParts(c, lang);
-    return `<div class="section-label">${TR(lang,'Scope of Work')}</div>${EST_DOC_CSS}<div class="est-doc">` + (parts2.length ? parts2.map(x=>`<div class="est-sub">${esc(x[0])}</div>${scopeListHTML(x[1])}`).join('') : `<p class="est-p">${TR(lang,'Nothing noted')}</p>`) + `</div>` + permitNote;
+    return `<div class="section-label">${TR(lang,'Scope of Work')}</div>${EST_DOC_CSS}<div class="est-doc">` + (parts2.length ? parts2.map(x=>`<div class="est-sub">${esc(x[0])}</div>${scopeListHTML(x[1])}`).join('') : `<p class="est-p">${TR(lang,'Nothing noted')}</p>`) + siteNotesDocHTML(c, lang) + `</div>` + permitNote;
   }
   const parts = [['Demolition',scopeText(c,'demo',lang)],['Construction & Installation',scopeText(c,'constr',lang)],['Electrical & Plumbing',scopeText(c,'ep',lang)]].filter(x=>x[1] && String(x[1]).trim());
-  if(!parts.length) return notesSection(TR(lang,'Scope of Work'),'',lang) + permitNote;
-  return `<div class="section-label">${TR(lang,'Scope of Work')}</div>` + parts.map(x=>`<div class="subtle" style="font-weight:600;margin:8px 0 3px;">${TR(lang,x[0])}</div><div class="notes-block">${esc(x[1])}</div>`).join('') + permitNote;
+  if(!parts.length) return notesSection(TR(lang,'Scope of Work'),'',lang) + siteNotesDocHTML(c, lang, 'summary') + permitNote;
+  return `<div class="section-label">${TR(lang,'Scope of Work')}</div>` + parts.map(x=>`<div class="subtle" style="font-weight:600;margin:8px 0 3px;">${TR(lang,x[0])}</div><div class="notes-block">${esc(x[1])}</div>`).join('') + siteNotesDocHTML(c, lang, 'summary') + permitNote;
 }
 function paymentSectionHTML(c, editable, lang){
   return `<div class="section-label">${TR(lang,'Payment Schedule')}</div>
@@ -8568,6 +8665,7 @@ function contractPrintBody(c, paper, lang){
       ${c.status!=='signed'
         ? `${EST_DOC_CSS}<div class="est-doc">` + (estimateScopeParts(c, lang).length ? estimateScopeParts(c, lang).map(x=>`<div class="est-sub">${esc(x[0])}</div>${scopeListHTML(x[1])}`).join('') : `<p>${TR(lang,'Nothing noted')}</p>`) + `</div>`
         : (scopeParts.length ? scopeParts.map(x=>`<div style="font-weight:bold;font-size:12px;margin:10px 0 3px;">${TR(lang,x[0])}</div><div style="background:#EEE9DC;border:1px solid #ddd;border-radius:6px;padding:10px 14px;white-space:pre-wrap;font-size:13px;line-height:1.6;">${esc(x[1])}</div>`).join('') : `<p>${TR(lang,'Nothing noted')}</p>`)}
+      ${siteNotesDocHTML(c, lang, 'summary')}
       <p style="margin-top:14px;font-size:12.5px;"><b>${TR(lang,'Permits:')}</b> ${esc(permitNoteText(c, lang))}</p>
       <p style="margin-top:18px;"><b>${TR(lang,'Total Contract Price')}${lang==='fr'?' :':':'} ${money(c.pricing.total)}</b> &nbsp;<span style="font-size:11px;color:#6B6455;">${TR(lang,'(the payment schedule is on the last page)')}</span></p>
       ${(paper && !c.signedOnPaper && !c.signature) ? `<div class="page-initials"><span>${TR(lang,'Owner has read and initialed this page:')}</span><b>____________</b></div>` : ''}
@@ -8613,6 +8711,7 @@ function estimateDetailView(e){
       <div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn ghost small" data-action="est-lost-open" data-id="${e.id}">Edit reason</button><button class="btn small" data-action="est-lost-undo" data-id="${e.id}">↩ They came back — undo</button></div></div>` : ''}
     ${langToggleHTML('estimate', e, lang, false)}
     ${permitToggleHTML('estimate', e)}
+    ${siteNotesEditorHTML('estimate', e)}
     ${frStaffNotesHTML('estimate', e, lang, !e.signedAt)}
     <div style="border:1px solid var(--line);border-radius:8px;padding:22px;background:#fff;">${estimateDocHTML(e, {lang})}</div>
     ${e.signedAt ? `
@@ -9226,6 +9325,7 @@ function pcEditorHTML(f, pb, totals, subVendors, pureVendors){
   return `${PC_CSS}
     <datalist id="store-list">${storeSuggestions().map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
     <div class="pc-bar"><span class="l">TOTAL</span><b id="pc-bar-total">${money(totals.grandTotal)}</b><a data-pc-jump="1">Breakdown ↓</a></div>
+    ${siteNotesEditorHTML('onsite', f)}
     <div class="pc-layout">
       <div>
         ${pcSec('materials', '🧱 Materials', [pcCount(ml.length,'item','items'), (()=>{ const n = ml.filter(l=>l.qty && !(parseFloat(l.unitPrice)>0)).length; return n ? `<span class="pc-needtxt">${n} need${n===1?'s':''} a price</span>` : ''; })()].filter(Boolean).join(' · '), 'pc-sec-materials', totals.materialsWithMarkup, materials, ml.length)}
@@ -9266,7 +9366,7 @@ function estimateFromWorksheet(f, pb){
   const pv = pbEstimatePreview(pb);
   const em = clientEmailFor(f.clientName,f.phone)||f.email||'';
   return { id:'preview', jobName:(f.jobName||(f.clientName+' — Project')), date:todayStr(), clientName:f.clientName, clientPhone:f.phone, address:f.propertyAddress, clientEmail:em,
-    demo:f.demo, constr:f.constr, ep:f.ep, pricing:pv.pricing, permitDetail:pv.permitDetail, finishes:pv.finishes, laborFlats:pv.laborFlats, noPermits: !!f.noPermits };
+    demo:f.demo, constr:f.constr, ep:f.ep, pricing:pv.pricing, permitDetail:pv.permitDetail, finishes:pv.finishes, laborFlats:pv.laborFlats, noPermits: !!f.noPermits, siteNotes: siteNotesOf(f) };
 }
 function customerDocsHTML(f, pb){
   const e = estimateFromWorksheet(f, pb);
@@ -10456,6 +10556,7 @@ function contractDetailView(c){
     <div class="modal-head"><h2 class="page-title" style="margin:0">Contract — ${esc(c.clientName)}${c.jobName?' · '+esc(c.jobName):''}</h2><div style="display:flex;gap:8px;align-items:center;"><button class="btn ghost small" data-action="del-contract" data-id="${c.id}">Delete</button><button class="close-x" data-action="close-modal">×</button></div></div>
     ${langToggleHTML('contract', c, lang, false)}
     ${permitToggleHTML('contract', c)}
+    ${siteNotesEditorHTML('contract', c)}
     ${frStaffNotesHTML('contract', c, lang, c.status!=='signed')}
     <div style="border:1px solid var(--line);border-radius:8px;padding:22px;background:#fff;">
       <div class="mono" style="font-size:11px;color:var(--muted);">13311 SW 9th Pl, Davie, FL 33325 | 954-605-4746 | Office@gsbconstructions.com</div>
@@ -11397,7 +11498,7 @@ Office@gsbconstructions.com`);
       pricing:{permit:val('e-p-permit')||0, demo:0, constr:val('e-p-constr')||0, ep:0},
       finishes:(STATE.modal && STATE.modal.data && STATE.modal.data.finishes) || [], laborFlats:(STATE.modal && STATE.modal.data && STATE.modal.data.laborFlats) || [], permitDetail:(STATE.modal && STATE.modal.data && STATE.modal.data.permitDetail) || '',
       signature:null, signedAt:null, lockAt: computeLockAt(ts), submittedAt: ts };
-    if(onsiteId){ const f0 = DB.onsite.find(x=>x.id===onsiteId); if(f0 && f0.noPermits) est.noPermits = true; }
+    if(onsiteId){ const f0 = DB.onsite.find(x=>x.id===onsiteId); if(f0 && f0.noPermits) est.noPermits = true; if(f0 && siteNotesOf(f0).length) est.siteNotes = siteNotesOf(f0).map(n=>({en:n.en, fr:n.fr||''})); }
     DB.estimates.push(est);
     if(onsiteId){ const f=DB.onsite.find(x=>x.id===onsiteId); if(f){ f.status='reviewed'; await saveRecord('onsite', f); } }
     await saveRecord('estimates', est);
@@ -11410,6 +11511,24 @@ Office@gsbconstructions.com`);
     STATE.modal = {type:'estimate-detail', data: DB.estimates.find(e=>e.id===el.dataset.id), sigCanvasId:'sig-estimate'}; render();
   }));
   bindClick('clear-sig', (el)=>{ clearSignature(el.dataset.canvas); });
+  const snDone = (r)=>{ const m = STATE.modal; if(m && m.data){ const x = [r.e, r.c].find(z=>z && z.id===m.data.id); if(x) STATE.modal = { ...m, data:x }; } render(); };
+  document.querySelectorAll('[data-action="sn-add"]').forEach(el=>el.addEventListener('click', async ()=>{
+    const r = await updateSiteNotes(el.dataset.kind, el.dataset.id, list=> list.some(n=>n.en===el.dataset.en) ? list : list.concat([{en:el.dataset.en, fr:el.dataset.fr||''}]));
+    snDone(r); showToast('📌 Added to the estimate & contract');
+  }));
+  document.querySelectorAll('[data-action="sn-add-own"]').forEach(el=>{
+    const go = async ()=>{ const inp = document.getElementById(el.dataset.input); const t = inp ? inp.value.trim() : ''; if(!t){ showToast('Type the note first'); return; }
+      const txt = /[.!?]$/.test(t) ? t : t+'.';
+      let fr = ''; if(navigator.onLine){ try{ fr = await Promise.race([translateTextFr(txt), new Promise(r=>setTimeout(()=>r(''), 6000))]) || ''; }catch(e){ fr = ''; } }
+      const r = await updateSiteNotes(el.dataset.kind, el.dataset.id, list=> list.some(n=>n.en===txt) ? list : list.concat([{en:txt, fr}]));
+      snDone(r); showToast('📌 Added to the estimate & contract'); };
+    el.addEventListener('click', go);
+    const inp = document.getElementById(el.dataset.input); if(inp) inp.addEventListener('keydown', ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); go(); } });
+  });
+  document.querySelectorAll('[data-action="sn-del"]').forEach(el=>el.addEventListener('click', async ()=>{
+    const i = +el.dataset.i; const r = await updateSiteNotes(el.dataset.kind, el.dataset.id, list=> list.filter((n,k)=>k!==i));
+    snDone(r); showToast('Removed');
+  }));
   document.querySelectorAll('[data-action="set-no-permits"]').forEach(el=>el.addEventListener('click', async ()=>{
     const r = await setNoPermits(el.dataset.kind, el.dataset.id, el.dataset.val==='1');
     const m = STATE.modal; if(m && m.data){ const x = [r.e, r.c].find(z=>z && z.id===m.data.id); if(x) STATE.modal = { ...m, data:x }; }
@@ -12481,6 +12600,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-f</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-g</div>
 </body>
 </html>
