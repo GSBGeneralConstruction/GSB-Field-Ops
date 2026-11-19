@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.19-c';
+const APP_VERSION = 'v2026.11.19-e';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3477,6 +3477,10 @@ function sk2BuildDom(){
     #sk2-root .sk2-mi-body{padding:0 9px 9px;border-top:1px dashed #EEE7D6;} #sk2-root .sk2-mi-body .how{font-size:11.5px;color:#7d7462;margin:7px 0 2px;line-height:1.35;}
     #sk2-root .sk2-mi-adv{margin-top:7px;} #sk2-root .sk2-mi-adv summary{cursor:pointer;font:600 12px Inter,sans-serif;color:#7A6A45;}
     #sk2-root .sk2-mi-body .acts{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;} #sk2-root .sk2-mi-body .acts button{background:none;border:0;padding:3px 0;font:600 12px Inter,sans-serif;color:#1F6FD1;cursor:pointer;} #sk2-root .sk2-mi-body .acts .del{color:#A33;}
+    #sk2-root .sk2-send.ask{background:#FFFBF2;border-color:#E9D9B0;} #sk2-root .sk2-cf-h{font:700 13px Inter,sans-serif;margin-bottom:2px;}
+    #sk2-root .sk2-cf{display:flex;gap:8px;align-items:flex-start;padding:6px 4px;border-top:1px solid #F0E8D4;cursor:pointer;} #sk2-root .sk2-cf input{width:20px;height:20px;margin-top:1px;flex:none;}
+    #sk2-root .sk2-cf .nm{font:600 12.5px Inter,sans-serif;} #sk2-root .sk2-cf small{display:block;font-weight:500;color:#7d7462;font-size:11.5px;} #sk2-root .sk2-cf em{display:block;font-style:normal;color:#9A6514;font-size:11.5px;margin-top:2px;}
+    #sk2-root .sk2-mi-body .acts .one{color:#3F7D4F;}
     #sk2-root .sk2-send.done{font:600 12.5px Inter,sans-serif;color:#3F7D4F;text-align:center;}
     #sk2-root .sk2-link{background:none;border:0;padding:6px 0 0;font:600 12px Inter,sans-serif;color:#7A6A45;cursor:pointer;}
     #sk2-root .sk2-calc h4{font-family:Oswald,sans-serif;font-size:15px;margin:0 0 4px;}
@@ -4336,10 +4340,8 @@ function sk2CalcItems(){
     plan.calcItems.forEach(it=>{
       const legacy = !it.id; if(!it.id) it.id = sk2Uid();
       if(!it.set){ it.set = JSON.parse(JSON.stringify(whole)); it.c = it.c || Object.assign({}, sk2CalcSettings()); }
-      if(legacy){
-        const wasSent = (plan.calcSent||[]).some(x=>(x.lines||[]).some(l=>l.materialId===it.mid)) || (pb && (pb.materialLines||[]).some(l=>l.materialId===it.mid && l.src==='sketch'));
-        if(wasSent && sent[it.id]==null) sent[it.id] = sk2ItemQty(it, sk2ItemCtx(plan, it)).qty;
-      }
+      // a list made before this version: count it as already on the calculator, so nothing is ever added twice
+      if(legacy && sent[it.id]==null){ const q = sk2ItemQty(it, sk2ItemCtx(plan, it)).qty; sent[it.id] = q; plan.calcSentQty[it.id] = q; }
     });
     S.dirty = true;
   }
@@ -4512,7 +4514,7 @@ function sk2ItemLabel(mm){ return mm ? mm.name + (mm.size ? ' — '+mm.size : ''
 function sk2FindHTML(q){
   q = String(q||'').trim().toLowerCase(); if(!q) return '';
   const words = q.split(/\s+/);
-  const list = DB.materials.filter(m=>{ const t = (m.name+' '+(m.size||'')+' '+(m.category||'')).toLowerCase(); return words.every(w=>t.includes(w)); }).slice(0, 12);
+  const list = DB.materials.filter(m=>{ if(m.rental || m.system) return false; const t = (m.name+' '+(m.size||'')+' '+(m.category||'')).toLowerCase(); return words.every(w=>t.includes(w)); }).slice(0, 12);
   if(!list.length) return `<div class="sub" style="padding:6px 2px;">Nothing in the catalog matches "${esc(q)}".</div>`;
   return list.map(m=>`<button type="button" class="sk2-find-row" data-sk2c-add="${m.id}">${matThumbHTML(m, 30)}<span><b>${esc(m.name)}</b>${m.size?`<br><span class="sub">${esc(m.size)}</span>`:''}</span><span class="plus">+</span></button>`).join('');
 }
@@ -4571,14 +4573,59 @@ function sk2ExportLines(){
   sk2PendingItems().forEach(r=>{ const k = r.it.mid; if(!by[k]) by[k] = { materialId:r.it.mid, qty:0, unitType:sk2ItemUnit(r.it) }; by[k].qty += r.delta; });
   return Object.values(by).filter(l=>l.qty!==0);
 }
+function sk2OnCalcQty(mid){ const f = sk2JobRec(), pb = f && f.pricingBreakdown; if(!pb) return null; const l = (pb.materialLines||[]).filter(x=>x.materialId===mid); return l.length ? l.reduce((t,x)=>t+(parseFloat(x.qty)||0),0) : null; }
+function sk2LastLog(){ const f = sk2JobRec(), pb = f && f.pricingBreakdown; const lg = pb && Array.isArray(pb.sketchLog) ? pb.sketchLog : []; return lg.length ? lg[lg.length-1] : null; }
+function sk2UndoHTML(){
+  const last = sk2LastLog(); if(!last) return '';
+  const when = new Date(last.at).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+  return `<button type="button" class="sk2-link" data-sk2p="calcundo">↶ Undo the last ${last.kind==='takeoff'?'fix':'add'} to the Pricing Calculator (${esc(when)}, ${last.lines.length} item${last.lines.length===1?'':'s'})</button>`;
+}
+function sk2ConfirmHTML(){
+  const S = STATE.sk2, pend = sk2PendingItems(), plan = S.plan;
+  const rows = pend.map(r=>{ const mm = DB.materials.find(z=>z.id===r.it.mid), on = sk2OnCalcQty(r.it.mid), i = sk2CalcItems().indexOf(r.it);
+    const already = on!=null && r.was===0;
+    return `<label class="sk2-cf${already?' warn':''}"><input type="checkbox" data-sk2cf="${r.it.id}" ${already?'':'checked'}>
+      <span class="nm">${esc(mm ? mm.name : 'Item')}<small>${esc(sk2SetLabel(plan, Object.assign(sk2EmptySet(), r.it.set)))} · ${r.delta>0?'+':''}${r.delta.toLocaleString()}${r.was ? ' (was '+r.was.toLocaleString()+', now '+r.q.toLocaleString()+')' : ''}</small>
+      ${already ? `<em>Already on the calculator (${on.toLocaleString()}) — left unticked so it isn't added twice</em>` : ''}</span></label>`; }).join('');
+  return `<div class="sk2-send ask"><div class="sk2-cf-h">Put these on the Pricing Calculator?</div><div class="sub" style="margin:0 0 6px;font-size:11.5px;">Only the ticked ones go on. Untick anything that's already there.</div>
+    ${rows}
+    <div class="sk2-row" style="margin:8px 0 0;"><button type="button" class="sk2-b main" data-sk2p="calcsend">✓ Put the ticked ones on</button><button type="button" class="sk2-b" data-sk2p="calcsendno">Cancel</button></div></div>`;
+}
 function sk2SendHTML(){
   const items = sk2CalcItems(); if(!items.length) return '';
-  const pend = sk2PendingItems();
-  if(!pend.length) return `<div class="sk2-send done">✓ Everything on this list is on the Pricing Calculator</div>`;
+  const S = STATE.sk2, pend = sk2PendingItems();
+  if(!pend.length) return `<div class="sk2-send done">✓ Everything on this list is on the Pricing Calculator</div>${sk2UndoHTML()}`;
+  if(S.calcConfirm) return sk2ConfirmHTML() + sk2UndoHTML();
   const nNew = pend.filter(r=>!r.was).length, nCh = pend.length - nNew;
   const what = [nNew ? nNew+' new' : '', nCh ? nCh+' changed' : ''].filter(Boolean).join(' + ');
-  return `<div class="sk2-send"><button class="sk2-b main" style="width:100%;" data-sk2p="calcsend">➕ Put ${what} item${pend.length===1?'':'s'} on the Pricing Calculator</button>
-    <div class="sub" style="margin:5px 0 0;font-size:11.5px;">Only what's marked NEW or CHANGED goes on — things already there are not added again. You just fill in the prices.</div></div>`;
+  return `<div class="sk2-send"><button class="sk2-b main" style="width:100%;" data-sk2p="calcsendask">➕ Put ${what} item${pend.length===1?'':'s'} on the Pricing Calculator…</button>
+    <div class="sub" style="margin:5px 0 0;font-size:11.5px;">You'll see the list and tick what goes on first. Or tap one item and put just that one on.</div></div>${sk2UndoHTML()}`;
+}
+/* put the chosen items on the job's Pricing Calculator; every add is logged so it can be undone */
+function sk2SendRows(pend){
+  const S = STATE.sk2, by = {};
+  pend.forEach(r=>{ const k = r.it.mid; if(!by[k]) by[k] = { materialId:r.it.mid, qty:0, unitType:sk2ItemUnit(r.it) }; by[k].qty += r.delta; });
+  const lines = Object.values(by).filter(l=>l.qty!==0), marks = {};
+  const sent = sk2SentMap(); pend.forEach(r=>{ marks[r.it.id] = r.was; sent[r.it.id] = r.q; S.plan.calcSentQty[r.it.id] = r.q; }); S.dirty = true;
+  const f = sk2JobRec(), entry = { id:sk2Uid(), at:nowISO(), kind:'add', lines, marks, who:(STATE.user && (STATE.user.first||STATE.user.name)) || '' };
+  if(f){
+    if(!f.pricingBreakdown) f.pricingBreakdown = defaultPricingBreakdown();
+    const pb = ensurePricingDefaults(f.pricingBreakdown), r = lines.length ? pcMergeLines(pb, lines, 'add') : {added:0, updated:0};
+    pb.sketchLog = (pb.sketchLog||[]).concat([entry]).slice(-20); pb.savedAt = nowISO();
+    saveRecord('onsite', f).catch(()=>{});
+    sk2Panel(); sk2Toast('✓ On the Pricing Calculator: '+([r.added ? r.added+' added' : '', r.updated ? r.updated+' updated' : ''].filter(Boolean).join(', ') || 'up to date')+' — tap ↶ Undo if that was a mistake');
+  } else {
+    // a worksheet that isn't submitted yet: the list rides with the sketch and goes in when its calculator is opened
+    if(lines.length) S.plan.calcSent = (S.plan.calcSent||[]).concat([Object.assign({ mode:'add' }, entry)]);
+    sk2Panel(); sk2Toast('✓ Saved with this sketch — the items go on the Pricing Calculator when you open it for this job. Tap Save on the sketch.');
+  }
+}
+function sk2UndoLast(){
+  const S = STATE.sk2, f = sk2JobRec(), pb = f && f.pricingBreakdown;
+  if(!pb || !(pb.sketchLog||[]).length){ sk2Toast('Nothing to undo'); return; }
+  const last = pb.sketchLog[pb.sketchLog.length-1];
+  if(!confirm('Undo the last '+(last.kind==='takeoff'?'fix':'add')+' to the Pricing Calculator? ('+last.lines.length+' item'+(last.lines.length===1?'':'s')+')')) return;
+  pcUndoLog(f, pb, last); S.dirty = true; sk2Panel(); sk2Toast('↶ Undone — the Pricing Calculator is back to how it was');
 }
 function sk2CalcText(plan){
   let t = 'MATERIALS\n';
@@ -4621,7 +4668,7 @@ function sk2MatPanelHTML(plan){
           ${def.p ? `<label>${esc(def.p)}<input type="number" inputmode="decimal" step="any" min="0" data-sk2c-p="${i}" value="${it.p ?? ''}"></label>` : ''}
           ${def.p2 ? `<label>${esc(def.p2)}<input type="number" inputmode="decimal" step="any" min="0" data-sk2c-p2="${i}" value="${it.p2 ?? ''}"></label>` : ''}
         </div></details>
-        <div class="acts">${recount ? `<button type="button" data-sk2p="calcrecount" data-i="${i}">↻ Count it for ${esc(label)} instead</button>` : ''}<button type="button" class="del" data-sk2p="calcdel" data-i="${i}">✕ Remove</button></div>
+        <div class="acts">${(r.qty !== (+was||0)) ? `<button type="button" class="one" data-sk2p="calcsendone" data-i="${i}">➕ Put just this one on the calculator (${(r.qty-(+was||0))>0?'+':''}${(r.qty-(+was||0)).toLocaleString()})</button>` : ''}${recount ? `<button type="button" data-sk2p="calcrecount" data-i="${i}">↻ Count it for ${esc(label)} instead</button>` : ''}<button type="button" class="del" data-sk2p="calcdel" data-i="${i}">✕ Remove</button></div>
       </div>` : ''}
     </div>`;
   };
@@ -4883,23 +4930,17 @@ function sk2Panel(){
 function sk2PanelAction(a, btn){
   const S = STATE.sk2, plan = S.plan, sel = S.sel;
   if(a==='mcopy'){ sk2Copy(); return; }
-  if(a==='calcsend'){
-    const pend = sk2PendingItems(), lines = sk2ExportLines(), mode = 'add';
-    if(!pend.length){ sk2Toast('Everything is already on the Pricing Calculator'); return; }
-    const f = sk2JobRec();
-    if(f && !f.pricingBreakdown) f.pricingBreakdown = defaultPricingBreakdown();
-    const mark = ()=>{ const sent = sk2SentMap(); pend.forEach(r=>{ sent[r.it.id] = r.q; S.plan.calcSentQty[r.it.id] = r.q; }); S.dirty = true; };
-    if(f){
-      ensurePricingDefaults(f.pricingBreakdown); const r = lines.length ? pcMergeLines(f.pricingBreakdown, lines, mode) : {added:0, updated:0}; mark(); f.pricingBreakdown.savedAt = nowISO();
-      saveRecord('onsite', f).catch(()=>{});
-      sk2Panel(); sk2Toast('✓ On the Pricing Calculator: '+([r.added ? r.added+' added' : '', r.updated ? r.updated+' updated' : ''].filter(Boolean).join(', ') || 'up to date')+' — just fill in the prices');
-    } else {
-      // a worksheet that isn't submitted yet: the list rides with the sketch and goes in when its calculator is opened
-      if(lines.length) S.plan.calcSent = (S.plan.calcSent||[]).concat([{ id:sk2Uid(), lines, mode }]); mark();
-      sk2Panel(); sk2Toast('✓ Saved with this sketch — the items go on the Pricing Calculator when you open it for this job. Tap Save on the sketch.');
-    }
-    return;
+  if(a==='calcsendask'){ S.calcConfirm = true; sk2Panel(); const el = document.querySelector('#sk2-panel .sk2-send.ask'); if(el) try{ el.scrollIntoView({block:'nearest'}); }catch(e){} return; }
+  if(a==='calcsendno'){ S.calcConfirm = false; sk2Panel(); return; }
+  if(a==='calcsend' || a==='calcsendone'){
+    let pend = sk2PendingItems();
+    if(a==='calcsendone'){ const it = sk2CalcItems()[+btn.dataset.i]; pend = pend.filter(r=>r.it===it); }
+    else { const on = new Set(Array.from(document.querySelectorAll('#sk2-panel [data-sk2cf]')).filter(x=>x.checked).map(x=>x.dataset.sk2cf)); pend = pend.filter(r=>on.has(r.it.id)); }
+    S.calcConfirm = false;
+    if(!pend.length){ sk2Panel(); sk2Toast('Nothing ticked — nothing was added'); return; }
+    sk2SendRows(pend); return;
   }
+  if(a==='calcundo'){ sk2UndoLast(); return; }
   if(a==='wallcolor'){ const sh = plan.shapes.find(x=>x.id===sel.sid); if(!sh) return; sk2Push(); sh.wcol = sh.wcol || {}; if(btn.dataset.k==='black') delete sh.wcol[sel.seg]; else sh.wcol[sel.seg] = btn.dataset.k; S.dirty = true; sk2Draw(); sk2Panel(); sk2Toast('Wall marked: '+sk2ColorName(plan, btn.dataset.k)); return; }
   if(a==='multicolor'){ const m = S.multi; if(!m) return; sk2Push(); m.segs.forEach(q=>{ const sh = plan.shapes.find(x=>x.id===q.sid); if(!sh) return; sh.wcol = sh.wcol || {}; if(btn.dataset.k==='black') delete sh.wcol[q.seg]; else sh.wcol[q.seg] = btn.dataset.k; }); S.dirty = true; sk2Draw(); sk2Panel(); sk2Toast(m.segs.length+' wall'+(m.segs.length===1?'':'s')+' marked: '+sk2ColorName(plan, btn.dataset.k)); return; }
   if(a==='colornames'){
@@ -8652,6 +8693,25 @@ function calcSubsSubtotal(pb){
 function calcVendorsSubtotal(pb){
   return (pb.vendorLines||[]).reduce((sum,line)=> sum + (parseFloat(line.price)||0), 0);
 }
+/* ---- rentals (scissor lift, etc.): priced by the day / week / month + a delivery & pickup fee ---- */
+const RENT_UNITS = { day:{one:'day', many:'days', days:1}, week:{one:'week', many:'weeks', days:7}, month:{one:'month', many:'months', days:28} };
+function rentRate(l, u){ return parseFloat(u==='day' ? l.rateDay : u==='week' ? l.rateWeek : l.rateMonth) || 0; }
+function rentLineTotal(l){ const u = RENT_UNITS[l.unit] ? l.unit : 'month'; return rentRate(l, u) * (parseFloat(l.count)||0) * (parseFloat(l.qty)||1) + (parseFloat(l.pickup)||0) * (parseFloat(l.qty)||1); }
+function calcRentalsSubtotal(pb){ return (pb.rentalLines||[]).reduce((t,l)=>t + rentLineTotal(l), 0); }
+/* same length of time, cheapest way to book it (e.g. 1 month instead of 3 weeks) */
+function rentCheaper(l){
+  const u = RENT_UNITS[l.unit] ? l.unit : 'month', n = parseFloat(l.count)||0; if(!n) return null;
+  const days = n * RENT_UNITS[u].days, cur = rentRate(l, u) * n; if(!cur) return null;
+  const d = rentRate(l,'day'), w = rentRate(l,'week'), m = rentRate(l,'month'), opts = [];
+  if(m){ const k = Math.ceil(days/28); opts.push({cost:k*m, txt:k+' '+(k===1?'month':'months')}); }
+  if(w){ const k = Math.ceil(days/7); opts.push({cost:k*w, txt:k+' '+(k===1?'week':'weeks')}); }
+  if(d){ opts.push({cost:days*d, txt:days+' '+(days===1?'day':'days')}); }
+  if(m && w){ const mm = Math.floor(days/28), rest = days - mm*28; if(mm && rest){ const ww = Math.ceil(rest/7); opts.push({cost:mm*m + ww*w, txt:mm+' '+(mm===1?'month':'months')+' + '+ww+' '+(ww===1?'week':'weeks')}); } }
+  if(w && d){ const ww = Math.floor(days/7), rest = days - ww*7; if(ww && rest) opts.push({cost:ww*w + rest*d, txt:ww+' '+(ww===1?'week':'weeks')+' + '+rest+' '+(rest===1?'day':'days')}); }
+  const best = opts.sort((a,b)=>a.cost-b.cost)[0];
+  return (best && best.cost < cur - 0.5) ? { txt:best.txt, cost:best.cost, save:cur - best.cost } : null;
+}
+function rentalPresets(){ return DB.materials.filter(m=>m.rental && !m.system).sort((a,b)=>a.name.localeCompare(b.name)); }
 function calcPricingTotals(pb){
   ensurePricingDefaults(pb);
   const licenseFee = parseFloat(pb.licenseFee)||0;
@@ -8668,10 +8728,12 @@ function calcPricingTotals(pb){
   const subsWithMarkup = subsBase * (1 + (parseFloat(pb.subsMarkupPct)||0)/100);
   const vendorsBase = calcVendorsSubtotal(pb);
   const vendorsWithMarkup = vendorsBase * (1 + (parseFloat(pb.vendorsMarkupPct)||0)/100);
-  const preTax = materialsWithMarkup + laborTotal + subsWithMarkup + vendorsWithMarkup + licenseFee + inspectionsTotal + finishesTotal + measureTotal;
+  const rentalsBase = calcRentalsSubtotal(pb);
+  const rentalsWithMarkup = rentalsBase * (1 + (parseFloat(pb.rentalsMarkupPct)||0)/100);
+  const preTax = materialsWithMarkup + laborTotal + subsWithMarkup + vendorsWithMarkup + rentalsWithMarkup + licenseFee + inspectionsTotal + finishesTotal + measureTotal;
   const taxAmount = preTax * (parseFloat(pb.taxPct)||0)/100;
   const grandTotal = preTax + taxAmount;
-  return { materialsBase, materialsWithMarkup, laborTotal, laborHourly, laborFlatTotal, subsBase, subsWithMarkup, vendorsBase, vendorsWithMarkup, licenseFee, inspectionsTotal, finishesTotal, measureBase, measureTotal, preTax, taxAmount, grandTotal };
+  return { materialsBase, materialsWithMarkup, laborTotal, laborHourly, laborFlatTotal, subsBase, subsWithMarkup, vendorsBase, vendorsWithMarkup, rentalsBase, rentalsWithMarkup, licenseFee, inspectionsTotal, finishesTotal, measureBase, measureTotal, preTax, taxAmount, grandTotal };
 }
 function calcPricingTotalsByCategory(pb){
   const cats = { demo:0, construction:0, ep:0 };
@@ -8688,6 +8750,7 @@ function calcPricingTotalsByCategory(pb){
     const cat = line.category || 'construction';
     cats[cat] += (parseFloat(line.price)||0) * (1 + (parseFloat(pb.vendorsMarkupPct)||0)/100);
   });
+  (pb.rentalLines||[]).forEach(line=>{ const cat = line.category || 'construction'; cats[cat] = (cats[cat]||0) + rentLineTotal(line) * (1 + (parseFloat(pb.rentalsMarkupPct)||0)/100); });
   cats.construction += (parseFloat(pb.laborRate)||0) * (parseFloat(pb.laborHours)||0) + calcLaborFlatTotal(pb); // labor always counts as construction
   cats.construction += calcMeasureTotal(pb) * (1 + (parseFloat(pb.materialsMarkupPct)||0)/100);
   const taxMult = 1 + (parseFloat(pb.taxPct)||0)/100;
@@ -8731,13 +8794,62 @@ function pcMergeLines(pb, lines, mode){
   });
   return { added, updated };
 }
+/* every sketch (plan) of this job, each once */
+function pcSketchPlans(f){
+  const plans = []; try{ (ensureSketches(f)||[]).forEach(k=>{ if(k && k.data && k.data.plan && !plans.includes(k.data.plan)) plans.push(k.data.plan); }); }catch(e){}
+  if(f.floorPlan && f.floorPlan.plan && !plans.includes(f.floorPlan.plan)) plans.push(f.floorPlan.plan);
+  return plans;
+}
+function pcSetSentMark(f, pb, iid, v){
+  pb.sketchSent = pb.sketchSent || {}; pb.sketchSent[iid] = v;
+  pcSketchPlans(f).forEach(pl=>{ if((pl.calcItems||[]).some(it=>it.id===iid)){ pl.calcSentQty = pl.calcSentQty || {}; pl.calcSentQty[iid] = v; } });
+  if(STATE.sk2 && STATE.sk2.plan && STATE.sk2.plan.calcSentQty && (STATE.sk2.plan.calcItems||[]).some(it=>it.id===iid)) STATE.sk2.plan.calcSentQty[iid] = v;
+}
+/* subtract (or add back) amounts on the calculator; a line the sketch made that drops to 0 with no price is removed */
+function pcApplyDelta(pb, lines, sign){
+  lines.forEach(l=>{ const ex = (pb.materialLines||[]).find(m=>m.materialId===l.materialId); const d = sign * (+l.qty||0); if(!d) return;
+    if(ex){ const v = Math.max(0, (parseFloat(ex.qty)||0) + d); ex.qty = String(v); if(v===0 && !(parseFloat(ex.unitPrice)>0) && ex.src==='sketch') pb.materialLines = pb.materialLines.filter(m=>m!==ex); }
+    else if(d > 0) pb.materialLines.push({ id:uid(), materialId:l.materialId, unitPrice:'', qty:String(d), unitType:l.unitType||'each', store:'', src:'sketch' }); });
+}
+function pcUndoLog(f, pb, entry){
+  pcApplyDelta(pb, entry.lines||[], -1);
+  Object.keys(entry.marks||{}).forEach(iid=>pcSetSentMark(f, pb, iid, entry.marks[iid]));
+  pb.sketchLog = (pb.sketchLog||[]).filter(e=>e!==entry); pb.savedAt = nowISO();
+  saveRecord('onsite', f).catch(()=>{});
+}
+/* what the sketches put on this calculator, item by item (to take duplicates back off) */
+function pcSketchAdded(f, pb){
+  const rows = [], seen = new Set(), sent = Object.assign({}, pb.sketchSent || {});
+  pcSketchPlans(f).forEach(pl=>{ const cs = pl.calcSentQty || {};
+    (pl.calcItems||[]).forEach(it=>{ if(!it || !it.id || seen.has(it.id)) return; const q = +(sent[it.id] ?? cs[it.id]) || 0; if(q <= 0) return; seen.add(it.id);
+      const mm = DB.materials.find(z=>z.id===it.mid); let where = ''; try{ where = sk2SetLabel(pl, Object.assign(sk2EmptySet(), it.set||{})); }catch(e){}
+      const ln = (pb.materialLines||[]).find(l=>l.materialId===it.mid);
+      rows.push({ iid:it.id, mid:it.mid, qty:q, name: mm ? mm.name+(mm.size?' — '+mm.size:'') : 'Item', where, on: ln ? (parseFloat(ln.qty)||0) : 0, unitType: ln ? ln.unitType : 'each' }); }); });
+  return rows;
+}
+function pcSketchToolsHTML(f, pb){
+  const log = pb.sketchLog || [], last = log[log.length-1], rows = pcSketchAdded(f, pb);
+  if(!last && !rows.length) return '';
+  const when = last ? new Date(last.at).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '';
+  let h = `<div class="pc-skt">`;
+  if(last) h += `<button type="button" class="btn ghost small" data-pricing-action="pc-sketch-undo">↶ Undo the last ${last.kind==='takeoff'?'fix':'add from the sketch'} (${esc(when)}, ${last.lines.length} item${last.lines.length===1?'':'s'})</button> `;
+  if(rows.length) h += `<button type="button" class="btn ghost small" data-pricing-action="pc-sketch-fix">📐 Fix amounts the sketch added</button>`;
+  if(STATE.pcSketchFix && rows.length){
+    h += `<div class="pc-skt-box"><b>What the sketch put on this calculator</b>
+      <p class="pc-help" style="margin:4px 0 8px;">Tick the ones that were added twice by mistake. Tapping the button takes exactly that amount back off. Untick anything you wanted added. You can undo this too.</p>
+      ${rows.map(r=>`<label class="pc-skt-row"><input type="checkbox" data-pcskfix="${esc(r.iid)}" checked><span><b>${esc(r.name)}</b><small>${esc(r.where||'')}${r.where?' · ':''}sketch added <b>${r.qty.toLocaleString()}</b> · on the calculator now: ${r.on.toLocaleString()} → after: ${Math.max(0, r.on - r.qty).toLocaleString()}</small></span></label>`).join('')}
+      <div class="pc-row" style="margin-top:8px;gap:6px;"><button type="button" class="btn small" data-pricing-action="pc-sketch-fix-go">Take the ticked amounts back off</button><button type="button" class="btn ghost small" data-pricing-action="pc-sketch-fix-close">Cancel</button></div></div>`;
+  }
+  return h + `</div>`;
+}
 /* lists sent from a sketch of a worksheet that wasn't submitted yet — put them in the first time the calculator opens */
 function pcPullSketchLines(f, pb){
   const plans = []; try{ (ensureSketches(f)||[]).forEach(k=>{ if(k && k.data && k.data.plan) plans.push(k.data.plan); }); }catch(e){}
   if(f.floorPlan && f.floorPlan.plan) plans.push(f.floorPlan.plan);
   if(!Array.isArray(pb.sketchApplied)) pb.sketchApplied = [];
   let n = 0;
-  plans.forEach(pl=>(pl.calcSent||[]).forEach(sent=>{ if(!sent || pb.sketchApplied.includes(sent.id)) return; pb.sketchApplied.push(sent.id); const r = pcMergeLines(pb, sent.lines||[], sent.mode); n += r.added + r.updated; }));
+  plans.forEach(pl=>(pl.calcSent||[]).forEach(sent=>{ if(!sent || pb.sketchApplied.includes(sent.id)) return; pb.sketchApplied.push(sent.id); const r = pcMergeLines(pb, sent.lines||[], sent.mode); n += r.added + r.updated;
+    if(sent.at) pb.sketchLog = (pb.sketchLog||[]).concat([{ id:sent.id, at:sent.at, kind:'add', lines:sent.lines||[], marks:sent.marks||{}, who:sent.who||'' }]).slice(-20); }));
   return n;
 }
 function calcFinishesTotal(pb){ return (pb.finishLines||[]).reduce((s,l)=> s + (parseFloat(l.price)||0), 0); }
@@ -8778,6 +8890,9 @@ function refreshPricingCalculatorTotals(pb){
   setText('pc-gt-labor', money(totals.laborTotal));
   setText('pc-gt-subs', money(totals.subsWithMarkup));
   setText('pc-gt-vendors', money(totals.vendorsWithMarkup));
+  (pb.rentalLines||[]).forEach(l=>{ setText('pc-rent-total-'+l.id, money(rentLineTotal(l))); const tip = document.getElementById('pc-rent-tip-'+l.id); if(tip){ const c = rentCheaper(l); tip.innerHTML = c ? rentTipHTML(c) : ''; } });
+  setText('pc-rentals-base', money(totals.rentalsBase)); setText('pc-rentals-markup', money(totals.rentalsWithMarkup)); setText('pc-gt-rentals', money(totals.rentalsWithMarkup)); setText('pc-sec-rentals', money(totals.rentalsWithMarkup));
+  { const tr = document.getElementById('pc-gt-rentals'); if(tr && tr.parentElement) tr.parentElement.classList.toggle('zero', !totals.rentalsWithMarkup); }
   setText('pc-inspections-total', money(totals.inspectionsTotal));
   setText('pc-finishes-total', money(totals.finishesTotal));
   (pb.measureLines||[]).forEach(l=>{ setText('pc-ml-total-'+l.id, money((parseFloat(l.rate)||0)*(parseFloat(l.qty)||0))); });
@@ -8802,6 +8917,8 @@ function renderPricingCalculatorPage(){
   if(!f.pricingBreakdown) f.pricingBreakdown = defaultPricingBreakdown();
   const pb = f.pricingBreakdown;
   if(!pb.vendorLines) pb.vendorLines = [];
+  if(!pb.rentalLines) pb.rentalLines = [];
+  if(pb.rentalsMarkupPct===undefined) pb.rentalsMarkupPct = 0;
   if(pb.vendorsMarkupPct===undefined) pb.vendorsMarkupPct = 0;
   ensurePricingDefaults(pb);
   const pulled = pcPullSketchLines(f, pb);
@@ -8879,6 +8996,20 @@ const PC_CSS = `<style>
     .pc-layout{padding-bottom:60px;}
     .pc-bar a{color:#fff;font-size:12.5px;text-decoration:underline;cursor:pointer;}
   }
+  .pc-rent{border:1px solid var(--line);border-radius:9px;padding:10px;margin:8px 0;background:#fff;}
+  .pc-skt{margin:6px 0 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;}
+  .pc-skt-box{flex-basis:100%;border:1px solid #E9D9B0;background:#FFFBF2;border-radius:9px;padding:10px 12px;}
+  .pc-skt-row{display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-top:1px solid #F0E8D4;cursor:pointer;} .pc-skt-row input{width:20px;height:20px;flex:none;margin-top:2px;}
+  .pc-skt-row small{display:block;color:var(--muted);font-size:12px;margin-top:2px;}
+  .pc-rent-rates{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px;}
+  .pc-rent-rates label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--muted);font-weight:600;}
+  .pc-rent-how{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:9px;font-size:13px;}
+  .pc-rent-total{margin-left:auto;font-size:17px;}
+  .pc-rent-tip{font-size:12.5px;color:#3F7D4F;margin-top:6px;} .pc-rent-tip:empty{display:none;}
+  .pc-rent-warn{font-size:12.5px;color:#9A6514;margin-top:6px;}
+  .pc-rent-saved{font-size:12px;color:#3F7D4F;margin-top:6px;}
+  .pc-rent .btn.small{margin-top:6px;}
+  @media (max-width:700px){ .pc-rent-rates{grid-template-columns:repeat(2,minmax(0,1fr));} }
 </style>`;
 function pcSecOpen(key, hasContent){ const o = STATE.pcSecOpen || (STATE.pcSecOpen = {}); return (key in o) ? o[key] : (key==='materials' || !!hasContent); }
 function pcSec(key, title, meta, totalId, total, body, hasContent){
@@ -8919,6 +9050,32 @@ function pcMaterialLineHTML(line){
     <input type="text" list="store-list" class="pc-in pc-store" data-pricing-action="set-material-store" data-line="${line.id}" value="${esc(line.store||'')}" placeholder="🛒 Where will you buy it? (e.g. Home Depot) — for us only, not on the estimate" autocomplete="off">
   </div>`;
 }
+function rentTipHTML(c){ return `💡 Cheaper: book <b>${esc(c.txt)}</b> for ${money(c.cost)} — saves ${money(c.save)}`; }
+function pcRentalLineHTML(l){
+  const u = RENT_UNITS[l.unit] ? l.unit : 'month', preset = l.rid ? DB.materials.find(m=>m.id===l.rid) : rentalPresets().find(m=>m.name.trim().toLowerCase()===String(l.name||'').trim().toLowerCase());
+  const same = preset && ['rateDay','rateWeek','rateMonth','pickup'].every(k=>String(parseFloat(preset[k])||'')===String(parseFloat(l[k])||''));
+  const c = rentCheaper(l), n = parseFloat(l.count)||0;
+  const inp = (act, v, ph, extra)=>`<input type="number" step="0.01" min="0" inputmode="decimal" class="pc-in" data-pricing-action="${act}" data-line="${l.id}" value="${v ?? ''}" placeholder="${ph}" ${extra||''}>`;
+  return `<div class="pc-rent">
+    <div class="pc-row" style="gap:8px;"><input type="text" class="pc-in" data-pricing-action="set-rental-name" data-line="${l.id}" value="${esc(l.name||'')}" placeholder="What are you renting? (e.g. Scissor lift)" style="flex:1;min-width:180px;font-weight:600;">
+      <button type="button" class="btn ghost small pc-x" data-pricing-action="remove-rental-line" data-line="${l.id}" title="Remove" aria-label="Remove">✕</button></div>
+    <div class="pc-rent-rates">
+      <label>Per day ($)${inp('set-rental-day', l.rateDay, '—')}</label>
+      <label>Per week ($)${inp('set-rental-week', l.rateWeek, '—')}</label>
+      <label>Per month ($)${inp('set-rental-month', l.rateMonth, '—')}</label>
+      <label>Delivery &amp; pickup ($)${inp('set-rental-pickup', l.pickup, '0')}</label>
+    </div>
+    <div class="pc-rent-how">
+      <span>Rent it for</span>${inp('set-rental-count', l.count, '1', 'style="width:70px;"')}
+      <select class="pc-in" data-pricing-action="set-rental-unit" data-line="${l.id}" style="width:auto;">${Object.keys(RENT_UNITS).map(k=>`<option value="${k}" ${k===u?'selected':''}>${n===1 ? RENT_UNITS[k].one : RENT_UNITS[k].many}</option>`).join('')}</select>
+      <span>× how many</span>${inp('set-rental-qty', l.qty, '1', 'style="width:60px;"')}
+      <b class="pc-rent-total" id="pc-rent-total-${l.id}">${money(rentLineTotal(l))}</b>
+    </div>
+    ${!rentRate(l, u) && n ? `<div class="pc-rent-warn">Add the price per ${RENT_UNITS[u].one} above.</div>` : ''}
+    <div class="pc-rent-tip" id="pc-rent-tip-${l.id}">${c ? rentTipHTML(c) : ''}</div>
+    ${String(l.name||'').trim() ? (same ? `<div class="pc-rent-saved">✓ Saved in your rentals list</div>` : `<button type="button" class="btn ghost small" data-pricing-action="save-rental-preset" data-line="${l.id}">💾 ${preset ? 'Update' : 'Save'} these prices in my rentals list</button>`) : ''}
+  </div>`;
+}
 function pcPartyLineHTML(line, list, kind){
   const word = kind==='sub' ? 'Subcontractor' : 'Vendor';
   return `<div class="pc-row">
@@ -8944,6 +9101,7 @@ function pcEditorHTML(f, pb, totals, subVendors, pureVendors){
 
   const materials = `
     <div class="pc-row" style="justify-content:space-between;"><p class="pc-help" style="margin:0;">Pick each item, then its price and how many.</p>${mk('set-materials-markup', pb.materialsMarkupPct, 'Markup')}</div>
+    ${pcSketchToolsHTML(f, pb)}
     ${ml.map(pcMaterialLineHTML).join('') || `<p class="pc-help">No materials added yet.</p>`}
     <div class="pc-add">
       <button class="btn small" data-pricing-action="add-material-line">+ Add Material</button>
@@ -8978,6 +9136,16 @@ function pcEditorHTML(f, pb, totals, subVendors, pureVendors){
     <div class="pc-add"><button class="btn ghost small" data-pricing-action="add-vendor-line">+ Add Vendor</button></div>
     <div class="pc-foot"><span>Vendors <span id="pc-vendors-base">${money(totals.vendorsBase)}</span> + markup</span><span>With markup: <b id="pc-vendors-markup">${money(totals.vendorsWithMarkup)}</b></span></div>`;
 
+  const rl = pb.rentalLines||[], presets = rentalPresets();
+  const rentals = `
+    <div class="pc-row" style="justify-content:space-between;"><p class="pc-help" style="margin:0;">Equipment you rent for this job (scissor lift, dumpster, generator…). Type the day / week / month prices, then how long you need it.</p>${mk('set-rentals-markup', pb.rentalsMarkupPct, 'Markup')}</div>
+    ${rl.map(pcRentalLineHTML).join('') || `<p class="pc-help">No rentals added yet.</p>`}
+    <div class="pc-add">
+      ${presets.length ? `<select class="pc-in" data-pricing-action="add-saved-rental" style="width:auto;min-width:200px;"><option value="">+ Add from my rentals list…</option>${presets.map(m=>`<option value="${m.id}">${esc(m.name)}${m.rateMonth?' — '+money(parseFloat(m.rateMonth))+'/mo':m.rateWeek?' — '+money(parseFloat(m.rateWeek))+'/wk':''}</option>`).join('')}</select>` : ''}
+      <button class="btn ghost small" data-pricing-action="add-rental-line">+ Add New Rental</button>
+    </div>
+    <div class="pc-foot"><span>Rentals <span id="pc-rentals-base">${money(totals.rentalsBase)}</span> + markup</span><span>With markup: <b id="pc-rentals-markup">${money(totals.rentalsWithMarkup)}</b></span></div>`;
+
   const permit = `
     <p class="pc-help">The license fee is a flat fee — change it any time for this job. Inspections are charged per inspection (for the days lost waiting on inspectors).</p>
     <div class="pc-grid">
@@ -9007,6 +9175,7 @@ function pcEditorHTML(f, pb, totals, subVendors, pureVendors){
         ${pcSec('labor', '👷 Labor', [hasHourly ? (parseFloat(pb.laborHours)||0)+' hrs' : '', pcCount(lf.length,'flat job','flat jobs')].filter(Boolean).join(' · '), 'pc-sec-labor', totals.laborTotal, labor, hasHourly || lf.length)}
         ${pcSec('subs', '🤝 Subcontractors', pcCount(sl.length,'sub','subs'), 'pc-sec-subs', totals.subsWithMarkup, subs, sl.length)}
         ${pcSec('vendors', '🚚 Vendors', pcCount(vl.length,'vendor','vendors'), 'pc-sec-vendors', totals.vendorsWithMarkup, vendors, vl.length)}
+        ${pcSec('rentals', '🚜 Rentals', pcCount(rl.length,'rental','rentals'), 'pc-sec-rentals', totals.rentalsWithMarkup, rentals, rl.length)}
         ${pcSec('permit', '📋 License &amp; Inspections', (parseFloat(pb.inspectionCount)||0) ? pcCount(parseFloat(pb.inspectionCount)||0,'inspection','inspections') : '', 'pc-sec-permit', totals.licenseFee + totals.inspectionsTotal, permit, false)}
         ${pcSec('finishes', '🎨 Finishes (flat fees)', pcCount(fl.length,'finish','finishes'), 'pc-sec-finishes', totals.finishesTotal, finishes, fl.length)}
         ${pcSec('tax', '🧾 Tax', (parseFloat(pb.taxPct)||0) ? (parseFloat(pb.taxPct)||0)+'%' : '', 'pc-sec-tax', totals.taxAmount, tax, false)}
@@ -9019,6 +9188,7 @@ function pcEditorHTML(f, pb, totals, subVendors, pureVendors){
             ${row('Labor (hourly + flat-fee jobs)', 'pc-gt-labor', totals.laborTotal)}
             ${row('Subcontractors (with markup)', 'pc-gt-subs', totals.subsWithMarkup)}
             ${row('Vendors (with markup)', 'pc-gt-vendors', totals.vendorsWithMarkup)}
+            ${row('Rentals (with markup)', 'pc-gt-rentals', totals.rentalsWithMarkup)}
             ${row('License (flat fee)', 'pc-gt-license', totals.licenseFee)}
             ${row('Inspections', 'pc-gt-inspections', totals.inspectionsTotal)}
             ${row('Finishes (flat fees)', 'pc-gt-finishes', totals.finishesTotal)}
@@ -9989,7 +10159,7 @@ const STD_MATERIALS_V12 = [   // vinyl baseboards (cove base), corners, PVC base
  ['Doors & Trim','Cove Base Adhesive (vinyl baseboard)','4 gal pail','bucket'],
 ];
 const MAT_SEED_MARKER = 'std-seeded-v1', MAT_SEED_MARKER2 = 'std-seeded-v2', MAT_SEED_MARKER3 = 'std-seeded-v3', MAT_SEED_MARKER4 = 'std-seeded-v4', MAT_SEED_MARKER5 = 'std-seeded-v5', MAT_SEED_MARKER6 = 'std-seeded-v6', MAT_SEED_MARKER7 = 'std-seeded-v7', MAT_SEED_MARKER8 = 'std-seeded-v8', MAT_SEED_MARKER9 = 'std-seeded-v9', MAT_SEED_MARKER10 = 'std-seeded-v10', MAT_SEED_MARKER11 = 'std-seeded-v11', MAT_SEED_MARKER12 = 'std-seeded-v12';
-function matList(){ return DB.materials.filter(m=>!m.system); }
+function matList(){ return DB.materials.filter(m=>!m.system && !m.rental); }
 /* Material picker for the Pricing Calculator: full scrolling list, or filtered while you type in the search box */
 function matOptionsHTML(selectedId, query){
   const words = String(query||'').toLowerCase().split(/\s+/).filter(Boolean);
@@ -10081,6 +10251,11 @@ async function seedStandardMaterials(force){
       DB.materials.push(rec); added.push(rec);
     });
     if(!have.has(bt.marker)){ have.add(bt.marker); const mk = { id:bt.marker, system:true, name:'(seeded)' }; DB.materials.push(mk); added.push(mk); }
+  }
+  if(!have.has('rent-seeded-v1') && (force || !offline)){
+    const lift = { id:'rent-scissor-lift', rental:true, category:'Rentals', size:'rental', icon:'tool', name:'Scissor Lift', rateDay:'', rateWeek:'340', rateMonth:'670', pickup:'400' };
+    if(!have.has(lift.id)){ DB.materials.push(lift); added.push(lift); have.add(lift.id); }
+    const mk = { id:'rent-seeded-v1', system:true, name:'(seeded)' }; DB.materials.push(mk); added.push(mk); have.add(mk.id);
   }
   const items = added.filter(r=>!r.system), marks = added.filter(r=>r.system);
   for(let i=0;i<items.length;i+=40){ await Promise.all(items.slice(i,i+40).map(r=>saveRecord('materials', r).catch(()=>{}))); }
@@ -11329,6 +11504,23 @@ Office@gsbconstructions.com`);
       const pb = ensurePricingDefaults(f.pricingBreakdown);
       const lineId = el.dataset.line;
       if(action==='pc-edit-line'){ STATE.pcEditLine = lineId || null; render(); return; }
+      if(action==='pc-sketch-fix'){ STATE.pcSketchFix = !STATE.pcSketchFix; render(); return; }
+      if(action==='pc-sketch-fix-close'){ STATE.pcSketchFix = false; render(); return; }
+      if(action==='pc-sketch-fix-go'){
+        const ids = new Set(Array.from(document.querySelectorAll('[data-pcskfix]')).filter(x=>x.checked).map(x=>x.dataset.pcskfix));
+        const rows = pcSketchAdded(f, pb).filter(r=>ids.has(r.iid)); if(!rows.length){ showToast('Nothing ticked'); return; }
+        const by = {}; rows.forEach(r=>{ if(!by[r.mid]) by[r.mid] = { materialId:r.mid, qty:0, unitType:r.unitType }; by[r.mid].qty -= r.qty; });
+        const lines = Object.values(by);
+        pcApplyDelta(pb, lines, +1);
+        // the items stay marked as "on the calculator" (they already were) so the sketch won't offer them again
+        pb.sketchLog = (pb.sketchLog||[]).concat([{ id:uid(), at:nowISO(), kind:'takeoff', lines, marks:{} }]).slice(-20);
+        STATE.pcSketchFix = false; await savePricingNow(false); render(); showToast('✓ Took back off what the sketch added twice — tap ↶ Undo if you need it back'); return;
+      }
+      if(action==='pc-sketch-undo'){
+        const last = (pb.sketchLog||[])[(pb.sketchLog||[]).length-1]; if(!last) return;
+        if(!confirm('Undo the last '+(last.kind==='takeoff'?'fix':'add from the sketch')+'? ('+last.lines.length+' item'+(last.lines.length===1?'':'s')+')')) return;
+        pcUndoLog(f, pb, last); await savePricingNow(false); render(); showToast('↶ Undone'); return;
+      }
       if(action!=='use-total' && action!=='pc-view') schedulePricingAutosave();
       // structural changes (add/remove rows, pick a different item) rebuild the page
       if(action==='add-material-line'){ const nid = uid(); pb.materialLines.push({ id:nid, materialId:'', unitPrice:'', qty:'' }); render(); setTimeout(()=>openMatPicker(nid), 30); return; }
@@ -11338,6 +11530,17 @@ Office@gsbconstructions.com`);
       if(action==='remove-sub-line'){ pb.subLines = pb.subLines.filter(l=>l.id!==lineId); render(); return; }
       if(action==='set-sub-vendor'){ const line=pb.subLines.find(l=>l.id===lineId); if(line) line.vendorId = el.value; render(); return; }
       if(action==='add-vendor-line'){ pb.vendorLines.push({ id:uid(), vendorId:'', price:'' }); render(); return; }
+      if(action==='add-rental-line'){ pb.rentalLines.push({ id:uid(), name:'', rateDay:'', rateWeek:'', rateMonth:'', pickup:'', unit:'month', count:'1', qty:'1' }); render(); return; }
+      if(action==='add-saved-rental'){ const m = DB.materials.find(x=>x.id===el.value); if(m) pb.rentalLines.push({ id:uid(), rid:m.id, name:m.name, rateDay:m.rateDay||'', rateWeek:m.rateWeek||'', rateMonth:m.rateMonth||'', pickup:m.pickup||'', unit: m.rateMonth ? 'month' : m.rateWeek ? 'week' : 'day', count:'1', qty:'1' }); render(); return; }
+      if(action==='remove-rental-line'){ pb.rentalLines = pb.rentalLines.filter(l=>l.id!==lineId); render(); return; }
+      if(action==='set-rental-unit'){ const l = pb.rentalLines.find(x=>x.id===lineId); if(l) l.unit = el.value; render(); return; }
+      if(action==='save-rental-preset'){ const l = pb.rentalLines.find(x=>x.id===lineId); if(!l || !String(l.name||'').trim()) return;
+        const nm = String(l.name).trim(), ex = (l.rid && DB.materials.find(m=>m.id===l.rid)) || rentalPresets().find(m=>m.name.trim().toLowerCase()===nm.toLowerCase());
+        const rec = ex || { id:'rent-'+nm.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+uid().slice(-4), rental:true, category:'Rentals', size:'rental', icon:'tool' };
+        Object.assign(rec, { name:nm, rateDay:l.rateDay||'', rateWeek:l.rateWeek||'', rateMonth:l.rateMonth||'', pickup:l.pickup||'' });
+        if(!ex) DB.materials.push(rec); l.rid = rec.id;
+        try{ await saveRecord('materials', rec); }catch(e){}
+        render(); showToast('💾 '+nm+' saved — next time pick it from "Add from my rentals list"'); return; }
       if(action==='remove-vendor-line'){ pb.vendorLines = pb.vendorLines.filter(l=>l.id!==lineId); render(); return; }
       if(action==='set-vendor-vendor'){ const line=pb.vendorLines.find(l=>l.id===lineId); if(line) line.vendorId = el.value; render(); return; }
       if(action==='add-measure-line'){ const nid = uid(); pb.measureLines.push({ id:nid, materialId:'', name:'', store:'', unit:'LF', rate:'', qty:'' }); render(); setTimeout(()=>openMatPicker(nid,'measure'), 30); return; }
@@ -11374,6 +11577,8 @@ Office@gsbconstructions.com`);
       if(action==='set-subs-markup'){ pb.subsMarkupPct = el.value; }
       if(action==='set-vendor-price'){ const line=pb.vendorLines.find(l=>l.id===lineId); if(line) line.price = el.value; }
       if(action==='set-vendors-markup'){ pb.vendorsMarkupPct = el.value; }
+      if(action==='set-rentals-markup'){ pb.rentalsMarkupPct = el.value; }
+      if(action.startsWith('set-rental-')){ const l = pb.rentalLines.find(x=>x.id===lineId); const k = {'set-rental-name':'name','set-rental-day':'rateDay','set-rental-week':'rateWeek','set-rental-month':'rateMonth','set-rental-pickup':'pickup','set-rental-count':'count','set-rental-qty':'qty'}[action]; if(l && k) l[k] = el.value; }
       if(action==='set-tax-pct'){ pb.taxPct = el.value; }
       if(action==='set-license-fee'){ pb.licenseFee = el.value; }
       if(action==='set-inspection-count'){ pb.inspectionCount = el.value; }
@@ -12212,6 +12417,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-c</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-e</div>
 </body>
 </html>
