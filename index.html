@@ -335,7 +335,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.19-h';
+const APP_VERSION = 'v2026.11.19-i';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -2141,6 +2141,7 @@ async function loadAll(){
     pend.forEach(it=>{
       if(!it || !DB[it.k] || !it.rec) return;
       const idf = RECORD_ID_FIELD[it.k]; const i = DB[it.k].findIndex(x=>x[idf]===it.rec[idf]);
+      if(i>=0 && SIGNABLE[it.k] && recSigned(it.k, DB[it.k][i]) && !recSigned(it.k, it.rec)){ OB.del(it.k, it.rec[idf]).catch(()=>{}); return; }   // signed in the cloud: the old unsigned copy here is dropped
       if(i>=0) DB[it.k][i] = it.rec; else DB[it.k].push(it.rec);
     });
   }catch(e){ console.warn('outbox merge', e); }
@@ -2152,6 +2153,13 @@ async function loadAll(){
   if(STATE.jobsite) return;    // switched to Job Site Mode while this was loading
   STATE.loaded = true; render();
   if(!STATE.offlineStart) setTimeout(()=>{ jsUploadAll().catch(()=>{}); }, 1500);
+  if(!STATE.offlineStart) setTimeout(async ()=>{ try{
+    for(const k of ['contracts','estimates']){
+      const look = DB[k].filter(x=>!recSigned(k, x) && (k==='contracts' ? !!contractSignedOnProject(x) : DB.clients.some(cl=>(cl.projects||[]).some(pr=>pr.estimateId===x.id && pr.estimateSigned))));
+      for(const x of look){ let sgn = null; try{ sgn = await cloudSignedCopy(k, x.id); }catch(e){} if(sgn) adoptCloudCopy(k, sgn); }
+    }
+    if(STATE.pendingRender && safeToRerender()){ STATE.pendingRender = false; render(); }
+  }catch(e){} }, 2500);
   if(STATE.offlineStart){ try{ showToast('📴 Offline mode — you can log in and do on-site worksheets. They save on this device and upload when you are back online.'); }catch(e){} }
   startLiveUpdates();
   // Safety net: if a client signed remotely but closed their page before the follow-up steps finished,
@@ -2345,6 +2353,10 @@ async function restSendBlobs(blobs){
 }
 async function strictSend(k, rec){
   const id = rec[RECORD_ID_FIELD[k]];
+  if(SIGNABLE[k] && !recSigned(k, rec)){
+    let signed = null; try{ signed = await cloudSignedCopy(k, id); }catch(e){}
+    if(signed){ adoptCloudCopy(k, signed); try{ await OB.del(k, id); }catch(e){} return {ok:true, keptSigned:true}; }
+  }
   let toWrite = rec, blobs = [];
   try{ if(BLOB_KEYS.includes(k)){ BLOB_SAVED.clear(); const ex = externalizeBlobs(rec); toWrite = ex.copy; blobs = ex.blobs; } }catch(e){}
   let sdkErr = null;
@@ -2429,7 +2441,7 @@ async function pullFromCloud(manual){
         if(pendNow.has(k+'/'+id) && !pend.has(k+'/'+id)) continue;
         if(pend.has(k+'/'+id)){
           const loc = DB[k].find(x=>x[idf]===id);
-          const newerRemote = k==='onsiteDrafts' && loc && String(rec.savedAt||'') > String(loc.savedAt||'');
+          const newerRemote = (k==='onsiteDrafts' && loc && String(rec.savedAt||'') > String(loc.savedAt||'')) || (SIGNABLE[k] && recSigned(k, rec) && !recSigned(k, loc));
           if(!newerRemote) continue;                                       // we have a newer unsent copy
           try{ await OB.del(k, id); }catch(e){}                            // the cloud copy is newer than our stuck one: take the cloud copy
         }
@@ -2502,6 +2514,21 @@ const LOCAL_TOUCH = {};   // key -> time this device last saved/deleted it (so a
 const TOMB_KEY = 'gsb-deleted-ids';
 function tombs(){ try{ return JSON.parse(localStorage.getItem(TOMB_KEY)||'{}'); }catch(e){ return {}; } }
 function tombSet(t){ try{ localStorage.setItem(TOMB_KEY, JSON.stringify(t)); }catch(e){} }
+/* A signed estimate / contract / change order is never overwritten by an older unsigned copy from a device */
+const SIGNABLE = { contracts:1, estimates:1, changeOrders:1 };
+function recSigned(k, r){ return !!(r && (r.signedAt || r.status==='signed')); }
+async function cloudSignedCopy(k, id){   // the signed cloud copy, null if not signed / not there; throws if the cloud can't be reached
+  let d = null;
+  try{ const snap = await Promise.race([collectionFor(k).doc(String(id)).get({source:'server'}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('slow')), 8000))]); d = snap.exists ? snap.data() : null; }
+  catch(e){ d = await restGetDoc(FS_PREFIX+KEYS[k], id); }
+  return (d && recSigned(k, d)) ? d : null;
+}
+function adoptCloudCopy(k, d){
+  const idf = RECORD_ID_FIELD[k], i = DB[k].findIndex(x=>x[idf]===d[idf]);
+  if(i>=0){ const cur = DB[k][i]; Object.keys(cur).forEach(key=>{ if(!(key in d)) delete cur[key]; }); Object.assign(cur, d); } else DB[k].push(d);
+  try{ OB.del(k, d[idf]).then(()=>obUpdateBadge()); }catch(e){}
+  STATE.pendingRender = true;
+}
 async function saveRecord(k, record){
   try{ LOCAL_TOUCH[k+'/'+record[RECORD_ID_FIELD[k]]] = Date.now(); const t = tombs(); const kk = k+'/'+record[RECORD_ID_FIELD[k]]; if(t[kk]){ delete t[kk]; tombSet(t); } }catch(e){}
   const idField = RECORD_ID_FIELD[k];
@@ -2515,6 +2542,10 @@ async function saveRecord(k, record){
       if(ex.blobs.length) await writeBlobs(ex.blobs);
     }
     await OB.put(k, id, record);
+    if(SIGNABLE[k] && !recSigned(k, record) && navigator.onLine){
+      let signed = null; try{ signed = await cloudSignedCopy(k, id); }catch(e){}
+      if(signed){ adoptCloudCopy(k, signed); try{ showToast('✍️ The client already signed this '+(k==='contracts'?'contract':k==='estimates'?'estimate':'change order')+' — the signed copy was kept, nothing was overwritten.'); }catch(e){} return; }
+    }
     const wp = collectionFor(k).doc(String(id)).set(toWrite);
     wp.then(()=>{ OB.del(k, id).then(()=>obUpdateBadge()); }).catch(()=>{});
     await fsWrite(wp);
@@ -8315,13 +8346,13 @@ function estimatesListView(){
   const lostAll = DB.estimates.filter(e=>e.lost);
   const list = [...DB.estimates].filter(e=> STATE.showLost ? !!e.lost : (!e.archived && !e.lost)).sort((a,b)=>String(b.dateCreated||'').localeCompare(String(a.dateCreated||'')));
   const foot = (lostAll.length || STATE.showLost) ? `<div style="text-align:center;margin-top:10px;"><button class="btn ghost small" data-action="toggle-show-lost">${STATE.showLost ? '← Back to estimates' : '👎 Didn\'t move forward ('+lostAll.length+')'}</button></div>` : '';
-  return `${STATE.showLost ? '<div class="banner-note" style="margin-bottom:10px;">Estimates where the client didn\'t move forward. Open one to see why — or to undo it if they come back.</div>' : ''}<div class="card" style="padding:8px 20px;">
+  return `${STATE.showLost ? '' : dupCleanupHTML()}${STATE.showLost ? '<div class="banner-note" style="margin-bottom:10px;">Estimates where the client didn\'t move forward. Open one to see why — or to undo it if they come back.</div>' : ''}<div class="card" style="padding:8px 20px;">
     ${list.length===0 ? emptyState('No estimates yet','') : list.map(e=>`
       <div class="list-row">
         <div class="main"><b>${esc(e.clientName)}</b> <span style="color:var(--muted);font-size:13px"> — ${esc(e.jobName)}</span>
           <div class="meta">${fmtDate(e.date)} &nbsp;·&nbsp; Total ${money(totalEstimate(e))}</div></div>
         <div style="display:flex;gap:8px;align-items:center;">
-          ${e.lost ? `<span class="tag overdue">NO — ${esc(e.lost.reason||'')}</span>` : `<span class="tag ${e.status==='signed'?'reviewed':'pending'}">${e.status==='signed'?(e.signedOnPaper?'SIGNED ON PAPER':'SIGNED'):'AWAITING SIGNATURE'}</span>`}
+          ${(!e.lost && !e.signedAt && jobHasSigned(e)) ? `<span class="tag overdue">OLD COPY — CLIENT SIGNED ANOTHER ONE</span>` : ''}${e.lost ? `<span class="tag overdue">NO — ${esc(e.lost.reason||'')}</span>` : `<span class="tag ${e.status==='signed'?'reviewed':'pending'}">${e.status==='signed'?(e.signedOnPaper?'SIGNED ON PAPER':'SIGNED'):'AWAITING SIGNATURE'}</span>`}
           ${contractForEstimate(e) ? `<button class="btn ghost small" data-action="open-docs-ready" data-id="${e.id}">📄 Estimate & Contract</button>` : ''}
           <button class="btn ghost small" data-action="del-estimate" data-id="${e.id}">Delete</button>
           <button class="btn ghost small" data-action="view-estimate" data-id="${e.id}">Open</button>
@@ -8753,8 +8784,42 @@ function signedEstimatesReady(){
   return [...DB.estimates].filter(e=>e.status==='signed' && !e.archived && !DB.contracts.find(c=>c.estimateId===e.id))
     .sort((a,b)=>(b.signedAt||b.dateCreated||'').localeCompare(a.signedAt||a.dateCreated||''));
 }
+/* estimates + contracts of the same job (same worksheet, or same client & address) */
+function docJobKey(x){ const e = x && x.estimateId ? DB.estimates.find(z=>z.id===x.estimateId) : null; const oid = (x && x.onsiteId) || (e && e.onsiteId);
+  return oid ? 'o:'+oid : 'n:'+String((x && x.clientName)||'').trim().toLowerCase()+'|'+String((x && x.address)||'').trim().toLowerCase(); }
+function jobHasSigned(x){ const k = docJobKey(x); return DB.contracts.some(c=>c!==x && c.id!==x.id && c.estimateId!==x.id && recSigned('contracts', c) && docJobKey(c)===k); }
+function contractSignedOnProject(c){ for(const cl of DB.clients){ const pr = (cl.projects||[]).find(p=>p.contractId===c.id && p.contractSigned); if(pr) return {client:cl, project:pr}; } return null; }
+/* older copies nobody signed: an unsigned estimate/contract is extra when a NEWER one exists for the same job,
+   or when the job's contract is already signed. Signed ones, and a contract the client signed by link, are never touched. */
+function docDuplicates(){
+  const groups = {}, t = x=>String(x.dateCreated||x.date||'');
+  DB.estimates.filter(e=>!e.lost).forEach(e=>{ const k = docJobKey(e); (groups[k] = groups[k] || {e:[], c:[]}).e.push(e); });
+  DB.contracts.filter(c=>!c.lost).forEach(c=>{ const k = docJobKey(c); (groups[k] = groups[k] || {e:[], c:[]}).c.push(c); });
+  const out = [], add = (kind, rec)=>{ if(!out.some(o=>o.rec===rec)) out.push({kind, rec}); };
+  Object.values(groups).forEach(g=>{
+    const signedC = g.c.filter(c=>recSigned('contracts', c));
+    g.e.forEach(e=>{
+      if(e.signedAt) return;
+      const own = g.c.find(c=>c.estimateId===e.id);
+      if(own && (recSigned('contracts', own) || contractSignedOnProject(own))) return;
+      const newer = g.e.some(o=>o!==e && t(o) > t(e));
+      if(newer || signedC.length){ add('estimate', e); if(own) add('contract', own); }
+    });
+    g.c.forEach(c=>{
+      if(recSigned('contracts', c) || contractSignedOnProject(c)) return;
+      const est = c.estimateId && DB.estimates.find(e=>e.id===c.estimateId);
+      if(est && est.signedAt && !g.e.some(o=>o!==est && t(o) > t(est))) { if(!signedC.length) return; }
+      const newer = g.c.some(o=>o!==c && t(o) > t(c));
+      if(newer || signedC.length) add('contract', c);
+    });
+  });
+  return out;
+}
+function dupCleanupHTML(){ const d = docDuplicates(); if(!d.length) return '';
+  const nE = d.filter(x=>x.kind==='estimate').length, nC = d.filter(x=>x.kind==='contract').length;
+  return `<div class="banner-note" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border-color:#B8863A;"><span>🧹 Found <b>${[nE?nE+' extra estimate'+(nE===1?'':'s'):'', nC?nC+' extra contract'+(nC===1?'':'s'):''].filter(Boolean).join(' and ')}</b> — older copies of the same job that were never signed.</span><button class="btn small" data-action="dedupe-docs">Remove the extra copies</button></div>`; }
 function contractsListView(){
-  const list = [...DB.contracts].filter(c=>!c.archived && !(c.status!=='signed' && (c.lost || DB.estimates.some(e=>e.id===c.estimateId && e.lost)))).sort((a,b)=>b.dateCreated.localeCompare(a.dateCreated));
+  const list = [...DB.contracts].filter(c=>(!c.archived || recSigned('contracts', c)) && !(c.status!=='signed' && (c.lost || DB.estimates.some(e=>e.id===c.estimateId && e.lost)))).sort((a,b)=>String(b.signedAt||b.dateCreated||'').localeCompare(String(a.signedAt||a.dateCreated||'')));
   const ready = signedEstimatesReady();
   const readyHtml = ready.length ? `
     <div class="section-label" style="margin-top:0;">Signed Estimates — Ready to Build a Contract</div>
@@ -8771,12 +8836,12 @@ function contractsListView(){
       </div>`).join('')}
     </div>
     <div class="section-label">Contracts</div>` : '';
-  return readyHtml + `<div class="card" style="padding:8px 20px;">
+  return dupCleanupHTML() + readyHtml + `<div class="card" style="padding:8px 20px;">
     ${list.length===0 ? emptyState('No contracts yet', ready.length ? 'Tap "Build Contract" on a signed estimate above.' : 'A contract is built automatically each time you save an estimate.') : list.map(c=>`
       <div class="list-row">
         <div class="main"><b>${esc(c.clientName)}</b>${c.jobName?` <span style="color:var(--muted);font-size:13px"> — ${esc(c.jobName)}</span>`:''}<div class="meta">${fmtDate(c.date)} &nbsp;·&nbsp; Total ${money(c.pricing.total)}</div></div>
         <div style="display:flex;gap:8px;align-items:center;">
-          <span class="tag ${c.status==='signed'?'reviewed':c.status==='locked'?'category':'pending'}">${c.status==='signed'?(c.signedOnPaper?'SIGNED ON PAPER':'SIGNED'):'READY TO SIGN'}</span>
+          ${c.status!=='signed' && contractSignedOnProject(c) ? `<span class="tag overdue">CLIENT SIGNED — OPEN TO FIX</span>` : c.status!=='signed' && jobHasSigned(c) ? `<span class="tag overdue">OLD COPY — CLIENT SIGNED ANOTHER ONE</span>` : `<span class="tag ${c.status==='signed'?'reviewed':c.status==='locked'?'category':'pending'}">${c.status==='signed'?(c.signedOnPaper?'SIGNED ON PAPER':'SIGNED')+(c.signedAt?' '+fmtDate(String(c.signedAt).slice(0,10)):''):'READY TO SIGN'}</span>`}
           <button class="btn ghost small" data-action="view-contract" data-id="${c.id}">Open</button>
           <button class="btn ghost small" data-action="del-contract" data-id="${c.id}">Delete</button>
         </div>
@@ -10573,6 +10638,8 @@ function contractDetailView(c){
   return `
     <div class="modal-head"><h2 class="page-title" style="margin:0">Contract — ${esc(c.clientName)}${c.jobName?' · '+esc(c.jobName):''}</h2><div style="display:flex;gap:8px;align-items:center;"><button class="btn ghost small" data-action="del-contract" data-id="${c.id}">Delete</button><button class="close-x" data-action="close-modal">×</button></div></div>
     ${langToggleHTML('contract', c, lang, false)}
+    ${(c.status!=='signed' && contractSignedOnProject(c)) ? `<div class="banner-note" style="border-color:#B8863A;"><b>⚠ The client signed this contract through the link</b> (their project in Clients says so), but this copy isn't showing the signature — an older copy from a device was saved over it.<div style="margin-top:8px;"><button class="btn small" data-action="contract-mark-signed-link" data-id="${c.id}">Fix it — show it as signed</button></div></div>` : ''}
+    ${c.signedByLinkRecovered ? `<div class="banner-note">✍️ Signed by the client through the link on ${fmtDateTime(c.signedAt)}. The signature image was lost from the app's copy before this was fixed.</div>` : ''}
     ${permitToggleHTML('contract', c)}
     ${siteNotesEditorHTML('contract', c)}
     ${frStaffNotesHTML('contract', c, lang, c.status!=='signed')}
@@ -11400,6 +11467,22 @@ Office@gsbconstructions.com`);
     STATE.modal = null;
     render();
   }));
+  document.querySelectorAll('[data-action="dedupe-docs"]').forEach(el=>el.addEventListener('click', async ()=>{
+    const d = docDuplicates(); if(!d.length) return;
+    const lines = d.map(x=>'• '+(x.kind==='estimate'?'Estimate':'Contract')+' — '+(x.rec.clientName||'')+(x.rec.jobName?' ('+x.rec.jobName+')':'')+' · '+fmtDate(String(x.rec.dateCreated||x.rec.date||'').slice(0,10))+' · '+money(x.kind==='estimate'?totalEstimate(x.rec):(x.rec.pricing&&x.rec.pricing.total)||0)).join('\n');
+    if(!confirm('Remove these older copies? None of them were signed. Signed documents and the newest copy of each job are kept.\n\n'+lines)) return;
+    for(const x of d){ const k = x.kind==='estimate' ? 'estimates' : 'contracts'; DB[k] = DB[k].filter(z=>z.id!==x.rec.id); try{ deleteRecord(k, x.rec.id); }catch(e){} }
+    render(); showToast('🧹 Removed '+d.length+' extra cop'+(d.length===1?'y':'ies'));
+  }));
+  document.querySelectorAll('[data-action="contract-mark-signed-link"]').forEach(el=>el.addEventListener('click', async ()=>{
+    const c = DB.contracts.find(x=>x.id===el.dataset.id); if(!c) return;
+    let signed = null; try{ signed = await cloudSignedCopy('contracts', c.id); }catch(e){}
+    if(signed){ adoptCloudCopy('contracts', signed); render(); showToast('✓ Found the signed copy in the cloud — it\'s showing as signed now'); return; }
+    const note = (DB.notifications||[]).filter(n=>n && n.msg && n.msg.indexOf((c.clientName||'')+' SIGNED their contract')>=0).sort((a,b)=>String(b.ts).localeCompare(String(a.ts)))[0];
+    if(!confirm('The cloud copy of this contract has lost the signature (an older unsigned copy was saved over it).\n\nMark it as SIGNED BY THE CLIENT THROUGH THE LINK'+(note?' on '+fmtDateTime(note.ts):'')+'? The contract will say the signature image was lost from the app\'s copy.')) return;
+    Object.assign(c, { status:'signed', signedAt: (note && note.ts) || nowISO(), signedByLinkRecovered:true });
+    await saveRecord('contracts', c); render(); showToast('✓ Marked as signed');
+  }));
   document.querySelectorAll('[data-action="del-contract"]').forEach(el=>el.addEventListener('click', ()=>{
     const c = DB.contracts.find(x=>x.id===el.dataset.id);
     if(!c) return;
@@ -11510,6 +11593,33 @@ Office@gsbconstructions.com`);
   bindClick('save-estimate', async (el)=>{
     const onsiteId = el.dataset.onsite;
     const ts = nowISO();
+    // this job already has an estimate: update it (and its contract) instead of making a copy
+    const prev = onsiteId ? DB.estimates.filter(x=>x.onsiteId===onsiteId && !x.lost && !x.archived).sort((a,b)=>String(b.dateCreated||'').localeCompare(String(a.dateCreated||'')))[0] : null;
+    const prevC = prev ? DB.contracts.find(x=>x.estimateId===prev.id) : null;
+    if(prev && !prev.signedAt && !(prevC && prevC.status==='signed')){
+      const f0 = DB.onsite.find(x=>x.id===onsiteId);
+      const upd = { jobName:val('e-jobname'), date:val('e-date'), clientName:val('e-clientName'), clientPhone:val('e-clientPhone'), address:val('e-address'), clientEmail:val('e-clientEmail'),
+        demo:val('e-demo'), constr:val('e-constr'), ep:val('e-ep'), owner:val('e-owner'),
+        pricing:{permit:val('e-p-permit')||0, demo:0, constr:val('e-p-constr')||0, ep:0},
+        finishes:(STATE.modal && STATE.modal.data && STATE.modal.data.finishes) || [], laborFlats:(STATE.modal && STATE.modal.data && STATE.modal.data.laborFlats) || [], permitDetail:(STATE.modal && STATE.modal.data && STATE.modal.data.permitDetail) || '' };
+      if(prev.scopeFr){ ['demo','constr','ep','owner'].forEach(k=>{ if(prev[k]!==upd[k] && prev.scopeFr[k]) delete prev.scopeFr[k]; }); }   // a changed scope part gets translated again
+      Object.assign(prev, upd, { updatedAt: ts, noPermits: !!(f0 && f0.noPermits) || !!prev.noPermits, siteNotes: (f0 && siteNotesOf(f0).length) ? siteNotesOf(f0).map(n=>({en:n.en, fr:n.fr||''})) : siteNotesOf(prev) });
+      if(f0){ f0.status='reviewed'; await saveRecord('onsite', f0); }
+      await saveRecord('estimates', prev);
+      const fresh = newContractFromEstimate(prev);
+      if(prevC){
+        Object.assign(prevC, { jobName:fresh.jobName, clientName:fresh.clientName, clientPhone:fresh.clientPhone, clientEmail:fresh.clientEmail, address:fresh.address, demo:fresh.demo, constr:fresh.constr, ep:fresh.ep, owner:fresh.owner,
+          pricing:fresh.pricing, payLabels:Object.assign({}, payLabelsFor({demo:prev.demo})), county: prevC.county || fresh.county, noPermits:fresh.noPermits, siteNotes:fresh.siteNotes, pageInitials:{}, updatedAt: ts,
+          scopeFr: prev.scopeFr ? JSON.parse(JSON.stringify(prev.scopeFr)) : prevC.scopeFr, lang: prev.lang || prevC.lang || 'en' });
+        await saveRecord('contracts', prevC);
+      } else { DB.contracts.push(fresh); await saveRecord('contracts', fresh); }
+      STATE.modal = {type:'docs-ready', data:{estimateId:prev.id}}; render();
+      showToast((prev.sentRemote || (prevC && prevC.sentRemote)) ? '✓ Estimate & contract updated (no copy made). You already sent a link — send it again so the client sees the new version.' : '✓ Estimate & contract updated — no copy was made');
+      return;
+    }
+    if(prev && (prev.signedAt || (prevC && prevC.status==='signed'))){
+      if(!confirm('The client already signed '+(prev.signedAt?'the estimate':'the contract')+' for this job.\n\nMaking this change creates a NEW estimate and contract for them to sign again. The signed one stays exactly as it is (as proof).\n\nMake the new version?')) return;
+    }
     const est = { id:uid(), onsiteId: onsiteId||null, dateCreated:ts, status:'draft',
       jobName:val('e-jobname'), date:val('e-date'), clientName:val('e-clientName'), clientPhone:val('e-clientPhone'), address:val('e-address'), clientEmail:val('e-clientEmail'),
       demo:val('e-demo'), constr:val('e-constr'), ep:val('e-ep'), owner:val('e-owner'),
@@ -12618,6 +12728,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-h</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-i</div>
 </body>
 </html>
