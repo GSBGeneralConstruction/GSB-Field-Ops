@@ -328,7 +328,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.17-a';
+const APP_VERSION = 'v2026.11.19-a';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3460,6 +3460,25 @@ function sk2BuildDom(){
     #sk2-root .sk2-list{border-top:1px solid #EEE;margin-top:6px;}
     #sk2-root .sk2-list div{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #EEE;font-size:13px;cursor:pointer;}
     #sk2-root .sk2-calc{border-top:2px solid #EFE9DB;margin-top:12px;padding-top:10px;}
+    #sk2-root .sk2-mtop{margin:-2px 0 8px;} #sk2-root .sk2-mtop .sk2-b{width:auto;padding:7px 12px;}
+    #sk2-root .sk2-step{background:#fff;border:1px solid #E6DFCD;border-radius:10px;padding:10px 11px;margin:0 0 10px;}
+    #sk2-root .sk2-step-h{display:flex;align-items:center;gap:8px;font:700 13.5px Inter,sans-serif;color:#2A261E;margin-bottom:6px;}
+    #sk2-root .sk2-step-h span{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#7A6A45;color:#fff;font-size:12px;flex:none;}
+    #sk2-root .sk2-step-h em{font-style:normal;margin-left:auto;background:#F3EFE4;border-radius:10px;padding:1px 8px;font-size:12px;color:#5c5240;}
+    #sk2-root .sk2-for{background:#F3EFE4;border-radius:8px;padding:8px 10px;} #sk2-root .sk2-for b{display:block;font:700 15px Inter,sans-serif;} #sk2-root .sk2-for small{color:#7d7462;font-size:12px;}
+    #sk2-root .sk2-mg{margin-top:8px;} #sk2-root .sk2-mg-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;padding:4px 2px;border-bottom:1px solid #EFE9DB;margin-bottom:4px;}
+    #sk2-root .sk2-mg-h b{font:700 12.5px Inter,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#5c5240;} #sk2-root .sk2-mg-h span{font-size:11px;color:#9a917e;}
+    #sk2-root .sk2-mi{border:1px solid #EEE7D6;border-radius:8px;margin:5px 0;background:#fff;} #sk2-root .sk2-mi.open{border-color:#7A6A45;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+    #sk2-root .sk2-mi-row{display:flex;align-items:center;gap:8px;width:100%;background:none;border:0;padding:7px 8px;text-align:left;cursor:pointer;font:inherit;color:inherit;}
+    #sk2-root .sk2-mi-row .nm{flex:1;min-width:0;font:600 12.5px Inter,sans-serif;line-height:1.25;} #sk2-root .sk2-mi-row .nm small{display:block;font-weight:500;font-size:11px;color:#8C8576;margin-top:1px;}
+    #sk2-root .sk2-mi-row .q{font:700 20px Inter,sans-serif;color:#2A261E;min-width:34px;text-align:right;}
+    #sk2-root .st{display:inline-block;margin-top:3px;font:700 9.5px Inter,sans-serif;letter-spacing:.03em;border-radius:4px;padding:1px 5px;}
+    #sk2-root .st.new{background:#E3EEF9;color:#1F5FA8;} #sk2-root .st.ok{background:#E6F2E8;color:#3F7D4F;} #sk2-root .st.ch{background:#FBEFD9;color:#9A6514;}
+    #sk2-root .sk2-mi-body{padding:0 9px 9px;border-top:1px dashed #EEE7D6;} #sk2-root .sk2-mi-body .how{font-size:11.5px;color:#7d7462;margin:7px 0 2px;line-height:1.35;}
+    #sk2-root .sk2-mi-adv{margin-top:7px;} #sk2-root .sk2-mi-adv summary{cursor:pointer;font:600 12px Inter,sans-serif;color:#7A6A45;}
+    #sk2-root .sk2-mi-body .acts{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;} #sk2-root .sk2-mi-body .acts button{background:none;border:0;padding:3px 0;font:600 12px Inter,sans-serif;color:#1F6FD1;cursor:pointer;} #sk2-root .sk2-mi-body .acts .del{color:#A33;}
+    #sk2-root .sk2-send.done{font:600 12.5px Inter,sans-serif;color:#3F7D4F;text-align:center;}
+    #sk2-root .sk2-link{background:none;border:0;padding:6px 0 0;font:600 12px Inter,sans-serif;color:#7A6A45;cursor:pointer;}
     #sk2-root .sk2-calc h4{font-family:Oswald,sans-serif;font-size:15px;margin:0 0 4px;}
     #sk2-root .sk2-cgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;margin:6px 0;}
     #sk2-root .sk2-cgrid label{font:600 10.5px Oswald,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:#6B6455;display:flex;flex-direction:column;gap:3px;}
@@ -3535,7 +3554,7 @@ function sk2BuildDom(){
   cv.addEventListener('pointerdown', sk2Down); cv.addEventListener('pointermove', sk2Move);
   cv.addEventListener('pointerup', sk2Up); cv.addEventListener('pointercancel', sk2Up);
   cv.addEventListener('wheel', (e)=>{ e.preventDefault(); sk2ZoomAt(e.offsetX, e.offsetY, e.deltaY<0 ? 1.12 : 1/1.12); }, {passive:false});
-  root.querySelectorAll('[data-sk2-tool]').forEach(b=>b.addEventListener('click', ()=>{ S.tool = b.dataset.sk2Tool; S.dimStart = null; if(S.tool!=='area' && S.tool!=='multi') S.multi = null; if(S.tool!=='pick') S.picks = []; if(S.tool==='pick'){ S.sel = null; } sk2Draw(); sk2Panel(); }));
+  root.querySelectorAll('[data-sk2-tool]').forEach(b=>b.addEventListener('click', ()=>{ S.matMode = false; S.calcEdit = null; S.tool = b.dataset.sk2Tool; S.dimStart = null; if(S.tool!=='area' && S.tool!=='multi') S.multi = null; if(S.tool!=='pick') S.picks = []; if(S.tool==='pick'){ S.sel = null; } sk2Draw(); sk2Panel(); }));
   root.querySelectorAll('[data-sk2]').forEach(b=>b.addEventListener('click', ()=>sk2TopAction(b.dataset.sk2)));
   const tape = root.querySelector('#sk2-tape');
   let tTimer = null;
@@ -3767,7 +3786,7 @@ function sk2Draw(target){
     const bb = sk2SetBounds(plan, M);
     if(bb){ const a = W2S({x:bb.x0, y:bb.y0}), b2 = W2S({x:bb.x1, y:bb.y1}), pad = 12;
       ctx.setLineDash([8,5]); ctx.strokeStyle = '#1F6FD1'; ctx.lineWidth = 2; ctx.strokeRect(a.x-pad, a.y-pad, b2.x-a.x+pad*2, b2.y-a.y+pad*2); ctx.setLineDash([]);
-      const txt = sk2SetCount(M)+' selected — drag to move'; ctx.font = '600 12px Inter, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      const txt = S.matMode ? '🧮 Counting materials for: '+sk2SetLabel(S.plan, M) : sk2SetCount(M)+' selected — drag to move'; ctx.font = '600 12px Inter, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
       const tw = ctx.measureText(txt).width + 10; ctx.fillStyle = '#1F6FD1'; ctx.fillRect(a.x-pad, a.y-pad-20, tw, 18); ctx.fillStyle = '#fff'; ctx.fillText(txt, a.x-pad+5, a.y-pad-4.5); }
   }
   // the box being dragged out
@@ -3808,7 +3827,7 @@ function sk2Status(){
     draw: S.plan.shapes.length ? 'Draw more walls (one line at a time works too), or TAP a wall to measure it' : 'Draw a room with your finger — in one go or one wall at a time',
     select:'Drag a corner (blue circle) to move it · tap a wall, room or item · drag items to move · drag the background to pan',
     area: S.multi ? 'Drag a box to add more · tap a wall to add/remove it · drag inside the dashed outline to move · tap empty space to unselect' : 'Drag a box across the walls you want — only the walls it crosses get picked · two fingers to pan/zoom',
-    multi: S.multi ? 'Tap walls, rooms or items to add/remove them · drag inside the dashed outline to move' : 'Tap walls one by one to pick them (tap a room to pick all its walls) · drag to pan',
+    multi: S.matMode ? 'Materials: tap rooms or walls to pick what you\'re counting for · drag to pan' : S.multi ? 'Tap walls, rooms or items to add/remove them · drag inside the dashed outline to move' : 'Tap walls one by one to pick them (tap a room to pick all its walls) · drag to pan',
     door:'Tap on a wall to add a door', window:'Tap on a wall to add a window', box:'Drag to draw a box any size — or tap for a standard one',
     column:'Tap on a wall to put a column inside it (or anywhere for a free-standing one)', note:'Tap where the note goes', pick:'Tap walls to add up their linear feet',
     dim: S.dimStart ? 'Now tap the OTHER wall' : 'Tap one wall, then the wall across from it — a measuring line goes between them',
@@ -3881,7 +3900,7 @@ function sk2Down(e){
   }
   if((S.tool==='area' || S.tool==='multi') && !S.readOnly){
     const w = sk2S2W(p);
-    if(S.multi){ const bb = sk2SetBounds(S.plan, S.multi), pad = 16/S.view.s; if(bb && w.x>=bb.x0-pad && w.x<=bb.x1+pad && w.y>=bb.y0-pad && w.y<=bb.y1+pad){ S.drag = { multi:true, start:w, pushed:false }; return; } }
+    if(S.multi && !S.matMode){ const bb = sk2SetBounds(S.plan, S.multi), pad = 16/S.view.s; if(bb && w.x>=bb.x0-pad && w.x<=bb.x1+pad && w.y>=bb.y0-pad && w.y<=bb.y1+pad){ S.drag = { multi:true, start:w, pushed:false }; return; } }
     if(S.tool==='area'){ S.areaDraw = { a:w, b:w }; return; }
   }
   if(S.tool==='draw' && !S.readOnly){ S.stroke = [sk2S2W(p)]; return; }
@@ -4311,7 +4330,48 @@ function sk2SaveCalc(){ try{ localStorage.setItem(SK2_CALC_KEY, JSON.stringify(S
 function sk2CalcItems(){
   const S = STATE.sk2, plan = S.plan;
   if(!Array.isArray(plan.calcItems)) plan.calcItems = [];   // a new sketch / new job starts with an empty list
+  // items saved before each one remembered its own area: give them the whole sketch, and don't send them twice
+  if(plan.calcItems.some(it=>!it.id || !it.set)){
+    const whole = sk2WholeSet(plan), sent = sk2SentMap(), f = sk2JobRec(), pb = f && f.pricingBreakdown;
+    plan.calcItems.forEach(it=>{
+      const legacy = !it.id; if(!it.id) it.id = sk2Uid();
+      if(!it.set){ it.set = JSON.parse(JSON.stringify(whole)); it.c = it.c || Object.assign({}, sk2CalcSettings()); }
+      if(legacy){
+        const wasSent = (plan.calcSent||[]).some(x=>(x.lines||[]).some(l=>l.materialId===it.mid)) || (pb && (pb.materialLines||[]).some(l=>l.materialId===it.mid && l.src==='sketch'));
+        if(wasSent && sent[it.id]==null) sent[it.id] = sk2ItemQty(it, sk2ItemCtx(plan, it)).qty;
+      }
+    });
+    S.dirty = true;
+  }
   return plan.calcItems;
+}
+/* what an item is counted for: the walls / rooms that were picked when it was added (never the current selection) */
+function sk2WholeSet(plan){
+  const m = sk2EmptySet();
+  plan.shapes.forEach(sh=>{ for(let i=0;i<sk2SegCount(sh);i++) m.segs.push({sid:sh.id, seg:i}); });
+  m.rooms = sk2SyncRooms(plan).map(r=>r.id);
+  return m;
+}
+function sk2SetOnly(m){ const o = sk2EmptySet(); o.segs = (m && m.segs || []).map(k=>({sid:k.sid, seg:k.seg})); o.rooms = (m && m.rooms || []).slice(); return o; }
+function sk2SetKey(m){ return (m && m.segs || []).map(k=>k.sid+':'+k.seg).sort().join(',')+'|'+(m && m.rooms || []).slice().sort().join(','); }
+function sk2SetLabel(plan, m){
+  const rooms = sk2SyncRooms(plan), inR = rooms.filter(r=>(m.rooms||[]).includes(r.id));
+  let total = 0; plan.shapes.forEach(sh=>{ total += sk2SegCount(sh); });
+  const segN = (m.segs||[]).length;
+  if(segN && segN >= total && inR.length === rooms.length) return 'Whole sketch';
+  const roomSegs = new Set(); inR.forEach(r=>(r._f.edges||[]).forEach(e=>roomSegs.add(e.sid+':'+e.seg)));
+  const extra = (m.segs||[]).filter(k=>!roomSegs.has(k.sid+':'+k.seg)).length;
+  if(inR.length) return inR.map(r=>r.name).join(', ') + (extra ? ' + '+extra+' wall'+(extra===1?'':'s') : '');
+  return segN+' wall'+(segN===1?'':'s');
+}
+function sk2ItemCtx(plan, it){ return sk2CalcCtx(plan, Object.assign(sk2EmptySet(), it.set || {}), Object.assign({}, sk2CalcSettings(), it.c || {})); }
+function sk2SetFacts(x){ return [x.walls ? (x.L/12).toFixed(1)+' LF of wall' : '', x.walls ? Math.round(x.wallSqft)+' sq ft to cover' : '', x.rooms.length ? x.floor.toFixed(1)+' sq ft floor & ceiling' : ''].filter(Boolean).join(' · '); }
+/* how much of each item is already on the Pricing Calculator (so pressing the button again never doubles it) */
+function sk2SentMap(){
+  const S = STATE.sk2, plan = S.plan; if(!plan.calcSentQty || typeof plan.calcSentQty!=='object') plan.calcSentQty = {};
+  const f = sk2JobRec(), pb = f && f.pricingBreakdown;
+  if(pb){ pb.sketchSent = pb.sketchSent || {}; Object.keys(plan.calcSentQty).forEach(k=>{ if(pb.sketchSent[k]==null) pb.sketchSent[k] = plan.calcSentQty[k]; }); return pb.sketchSent; }
+  return plan.calcSentQty;
 }
 function sk2SaveItems(){ const S = STATE.sk2; S.dirty = true; }   // the list is saved with this sketch only
 /* how each kind of item is counted */
@@ -4496,25 +4556,91 @@ function sk2CalcHTML(plan, m){
 }
 /* ---- send the counted materials to the job's Pricing Calculator (only the prices are left to fill in) ---- */
 function sk2JobRec(){ const c = STATE.sk2 && STATE.sk2.ctx; if(!c || !c.id || !['view-onsite','new-sketch','edit-sketch'].includes(c.kind)) return null; return DB.onsite.find(x=>x.id===c.id) || null; }
+function sk2ItemUnit(it){ return (['floor','ceiling','wall','cavity'].includes(it.method) && +it.p===1) ? 'SF' : (it.method==='lf' && +it.p===1) ? 'LF' : 'each'; }
+/* only what's new or changed since the last time it went on the calculator */
+function sk2PendingItems(){
+  const S = STATE.sk2, sent = sk2SentMap();
+  return sk2CalcItems().map(it=>{ const q = sk2ItemQty(it, sk2ItemCtx(S.plan, it)).qty, was = +sent[it.id] || 0; return { it, q, was, delta: q - was }; }).filter(r=>r.delta!==0);
+}
 function sk2ExportLines(){
-  const S = STATE.sk2, x = sk2CalcCtx(S.plan, S.multi||sk2EmptySet(), sk2CalcSettings());
-  return sk2CalcItems().map(it=>{ const r = sk2ItemQty(it, x); if(!r.qty) return null;
-    const ut = (['floor','ceiling','wall','cavity'].includes(it.method) && +it.p===1) ? 'SF' : (it.method==='lf' && +it.p===1) ? 'LF' : 'each';
-    return { materialId:it.mid, qty:r.qty, unitType:ut }; }).filter(Boolean);
+  const by = {};
+  sk2PendingItems().forEach(r=>{ const k = r.it.mid; if(!by[k]) by[k] = { materialId:r.it.mid, qty:0, unitType:sk2ItemUnit(r.it) }; by[k].qty += r.delta; });
+  return Object.values(by).filter(l=>l.qty!==0);
 }
 function sk2SendHTML(){
-  const S = STATE.sk2, lines = sk2ExportLines(); if(!lines.length) return '';
-  const f = sk2JobRec(), pb = f && f.pricingBreakdown, dupes = pb ? lines.filter(l=>(pb.materialLines||[]).some(m=>m.materialId===l.materialId)) : [];
-  if(dupes.length) return `<div class="sk2-send"><div class="sub" style="margin:0 0 6px;"><b>${dupes.length} of these ${dupes.length===1?'is':'are'} already on the Pricing Calculator</b> for this job.</div>
-    <div class="sk2-row" style="margin:0;"><button class="sk2-b main" data-sk2p="calcsend" data-mode="add">➕ Add to those amounts</button><button class="sk2-b" data-sk2p="calcsend" data-mode="replace">↺ Replace those amounts</button></div></div>`;
-  return `<div class="sk2-send"><button class="sk2-b main" style="width:100%;" data-sk2p="calcsend" data-mode="add">➕ Add ${lines.length} item${lines.length===1?'':'s'} to the Pricing Calculator</button>
-    <div class="sub" style="margin:5px 0 0;font-size:11.5px;">They go on this job's calculator with the amounts filled in — you just add the prices.</div></div>`;
+  const items = sk2CalcItems(); if(!items.length) return '';
+  const pend = sk2PendingItems();
+  if(!pend.length) return `<div class="sk2-send done">✓ Everything on this list is on the Pricing Calculator</div>`;
+  const nNew = pend.filter(r=>!r.was).length, nCh = pend.length - nNew;
+  const what = [nNew ? nNew+' new' : '', nCh ? nCh+' changed' : ''].filter(Boolean).join(' + ');
+  return `<div class="sk2-send"><button class="sk2-b main" style="width:100%;" data-sk2p="calcsend">➕ Put ${what} item${pend.length===1?'':'s'} on the Pricing Calculator</button>
+    <div class="sub" style="margin:5px 0 0;font-size:11.5px;">Only what's marked NEW or CHANGED goes on — things already there are not added again. You just fill in the prices.</div></div>`;
 }
-function sk2CalcText(plan, m){
-  const c = sk2CalcSettings(), x = sk2CalcCtx(plan, m, c);
-  let t = 'MATERIALS — '+[x.walls ? (x.L/12).toFixed(1)+' LF of wall, '+sk2Fmt(c.h)+' high, studs '+c.sp+'" apart' : '', x.rooms.length ? 'rooms: '+x.rooms.map(r=>r.name).join(', ')+' ('+x.floor.toFixed(1)+' sq ft)' : ''].filter(Boolean).join(' · ')+'\n';
-  sk2CalcItems().forEach(it=>{ const mm = DB.materials.find(z=>z.id===it.mid), r = sk2ItemQty(it, x); t += '- '+sk2ItemLabel(mm)+': '+r.qty.toLocaleString()+'  ('+r.how+')\n'; });
+function sk2CalcText(plan){
+  let t = 'MATERIALS\n';
+  sk2CalcGroups(plan).forEach(g=>{ t += '\n'+g.label.toUpperCase()+(g.facts ? ' — '+g.facts : '')+'\n';
+    g.rows.forEach(({it})=>{ const mm = DB.materials.find(z=>z.id===it.mid), r = sk2ItemQty(it, sk2ItemCtx(plan, it)); t += '- '+sk2ItemLabel(mm)+': '+r.qty.toLocaleString()+'  ('+r.how+')\n'; }); });
   return t;
+}
+function sk2CalcGroups(plan){
+  const groups = [], byKey = {};
+  sk2CalcItems().forEach((it, i)=>{ const k = sk2SetKey(it.set); if(!byKey[k]){ const x = sk2ItemCtx(plan, it); byKey[k] = { key:k, label:sk2SetLabel(plan, Object.assign(sk2EmptySet(), it.set)), facts:sk2SetFacts(x), rows:[] }; groups.push(byKey[k]); } byKey[k].rows.push({ it, i }); });
+  return groups;
+}
+/* ---- the materials screen: 1 pick the area · 2 add materials · 3 your list (each item keeps its own area) ---- */
+function sk2MatPanelHTML(plan){
+  const S = STATE.sk2, c = sk2CalcSettings(), m = S.multi || sk2EmptySet(), items = sk2CalcItems(), sent = sk2SentMap();
+  const x = sk2CalcCtx(plan, m, c), has = !!(x.walls || x.rooms.length), label = has ? sk2SetLabel(plan, m) : '', curKey = has ? sk2SetKey(m) : '';
+  const opt = (v, cur, l)=>`<option value="${v}" ${String(v)===String(cur)?'selected':''}>${l}</option>`;
+  const settings = S.calcSet ? `<div class="sk2-cgrid">
+      <label>Wall height<input id="sk2c-h" value="${esc(sk2Fmt(c.h))}" autocomplete="off"></label>
+      <label>Stud spacing (inches)<input id="sk2c-sp" type="number" inputmode="decimal" min="4" step="any" value="${c.sp}"></label>
+      <label>Cover walls on<select id="sk2c-sides">${opt(1,c.sides,'1 side')}${opt(2,c.sides,'Both sides')}</select></label>
+      <label>Extra for waste %<input id="sk2c-waste" type="number" inputmode="decimal" min="0" step="1" value="${c.waste}"></label>
+    </div>
+    <label class="sk2-cchk"><input type="checkbox" id="sk2c-ops" ${c.openings?'checked':''}> Leave out doors &amp; windows</label>
+    <div class="sub" style="font-size:11.5px;margin:4px 0 6px;">These are used for materials you add from now on.</div>
+    <div class="sk2-row" style="margin:0;"><button type="button" class="sk2-b main" data-sk2p="calcset">✓ Done</button>${items.length ? `<button type="button" class="sk2-b" data-sk2p="calcsetall">Use for all ${items.length} on the list</button>` : ''}</div>`
+    : `<button type="button" class="sk2-cset" data-sk2p="calcset">Walls ${esc(sk2Fmt(c.h))} high · studs ${c.sp}" apart · ${c.sides==1?'1 side':'both sides'} · +${c.waste}% waste<span>Change</span></button>`;
+  const areaName = (it)=> (it.where && ['studs','track','perstud'].includes(it.method)) ? (it.where==='floor'?'Floor':'Ceiling') : it.method==='floor' ? 'Floor' : (it.method==='ceiling' || it.method==='perim') ? 'Ceiling' : it.method==='manual' ? 'Typed amount' : 'Walls';
+  const row = ({it, i})=>{
+    const mm = DB.materials.find(z=>z.id===it.mid), r = sk2ItemQty(it, sk2ItemCtx(plan, it)), was = sent[it.id], open = S.calcEdit===i, def = SK2_METHODS[it.method] || SK2_METHODS.manual;
+    const st = was==null || +was===0 ? (r.qty ? '<span class="st new">NEW</span>' : '') : (+was===r.qty ? '<span class="st ok">✓ on calculator</span>' : `<span class="st ch">CHANGED · was ${(+was).toLocaleString()}</span>`);
+    const recount = has && (sk2SetKey(it.set) !== curKey || JSON.stringify(it.c||{}) !== JSON.stringify(c));
+    return `<div class="sk2-mi${open?' open':''}">
+      <button type="button" class="sk2-mi-row" data-sk2p="calcedit" data-i="${i}">${matThumbHTML(mm, 32)}<span class="nm">${esc(mm ? mm.name : 'Item removed from the catalog')}<small>${esc([mm && mm.size, areaName(it)].filter(Boolean).join(' · '))}</small>${st}</span><span class="q">${r.qty.toLocaleString()}</span></button>
+      ${open ? `<div class="sk2-mi-body">
+        <div class="how">${esc(r.how)}</div>
+        <div class="sk2-area">${[['walls','🧱 Walls'],['floor','⬜ Floor'],['ceiling','⬛ Ceiling']].map(([k,l])=>`<button type="button" class="${areaName(it).toLowerCase()===k?'on':''}" data-sk2p="calcarea" data-i="${i}" data-area="${k}">${l}</button>`).join('')}</div>
+        <details class="sk2-mi-adv"><summary>⚙ How it's counted</summary><div class="sk2-cgrid" style="margin-top:6px;">
+          <label style="grid-column:1/-1;">Count it as<select data-sk2c-method="${i}">${Object.keys(SK2_METHODS).map(k=>opt(k, it.method, SK2_METHODS[k].label)).join('')}</select></label>
+          ${def.p ? `<label>${esc(def.p)}<input type="number" inputmode="decimal" step="any" min="0" data-sk2c-p="${i}" value="${it.p ?? ''}"></label>` : ''}
+          ${def.p2 ? `<label>${esc(def.p2)}<input type="number" inputmode="decimal" step="any" min="0" data-sk2c-p2="${i}" value="${it.p2 ?? ''}"></label>` : ''}
+        </div></details>
+        <div class="acts">${recount ? `<button type="button" data-sk2p="calcrecount" data-i="${i}">↻ Count it for ${esc(label)} instead</button>` : ''}<button type="button" class="del" data-sk2p="calcdel" data-i="${i}">✕ Remove</button></div>
+      </div>` : ''}
+    </div>`;
+  };
+  const groups = sk2CalcGroups(plan);
+  const list = groups.map(g=>`<div class="sk2-mg"><div class="sk2-mg-h"><b>${esc(g.label)}</b><span>${esc(g.facts)}</span></div>${g.rows.map(row).join('')}</div>`).join('');
+  return `<div class="sk2-mat">
+    <div class="sk2-mtop"><button type="button" class="sk2-b" data-sk2p="matback">← Back to sketch</button></div>
+    <h3>🧮 Materials</h3>
+    <div class="sk2-step"><div class="sk2-step-h"><span>1</span>What are you counting for?</div>
+      ${has ? `<div class="sk2-for"><b>${esc(label)}</b><small>${esc(sk2SetFacts(x))}</small></div>` : `<div class="sub" style="margin:2px 0 6px;">Tap a room or walls on the sketch.</div>`}
+      <div class="sk2-row" style="margin:6px 0 0;"><button type="button" class="sk2-b" data-sk2p="calcall">🏠 Whole sketch</button>${has ? `<button type="button" class="sk2-b" data-sk2p="mnone">Clear</button>` : ''}</div>
+      <div class="sub" style="font-size:11.5px;margin-top:6px;">Tap more rooms or walls on the sketch to add them, tap again to take them out.</div>
+      ${x.walls || S.calcSet ? `<div style="margin-top:8px;">${settings}</div>` : ''}
+    </div>
+    <div class="sk2-step"><div class="sk2-step-h"><span>2</span>Add materials</div>
+      ${has ? `<button type="button" class="sk2-addmat" data-sk2c-open="">🔍 Add a material for <b>${esc(label)}</b></button>` : `<div class="sub" style="margin:0;">Pick what you're counting for first (step 1).</div>`}
+    </div>
+    <div class="sk2-step"><div class="sk2-step-h"><span>3</span>Your list${items.length ? ` <em>${items.length}</em>` : ''}</div>
+      ${list || `<div class="sub" style="margin:0;">Nothing yet. Each material you add keeps the area it was added for — picking another room later won't change it.</div>`}
+      ${items.length ? `${sk2SendHTML()}<button type="button" class="sk2-link" data-sk2p="calccopy">📄 Copy this list as text</button>
+      <p class="sub" style="font-size:11px;margin-top:6px;">Quick estimates, rounded up — double-check before ordering. Tap an item to change it.</p>` : ''}
+    </div>
+  </div>`;
 }
 function sk2BindCalc(){
   const S = STATE.sk2, c = sk2CalcSettings(), items = sk2CalcItems();
@@ -4527,10 +4653,12 @@ function sk2BindCalc(){
   const panel = document.getElementById('sk2-panel'); if(!panel) return;
   const addMat = (id)=>{
     const mm = DB.materials.find(z=>z.id===id); if(!mm) return;
-    if(items.some(it=>it.mid===mm.id)){ sk2Toast('Already on the list'); return; }
-    items.push(Object.assign({ mid:mm.id }, sk2GuessMethod(mm))); sk2SaveItems(); sk2Panel();
-    const pn = document.getElementById('sk2-panel'), last = pn && pn.querySelectorAll('.sk2-item'); if(last && last.length) try{ last[last.length-1].scrollIntoView({block:'nearest'}); }catch(e){}
-    sk2Toast('✓ Added '+mm.name+' — tap ⚙ if it should be counted differently');
+    const m = S.multi; if(!m){ sk2Toast('Tap a room or walls first'); return; }
+    const set = sk2SetOnly(m), key = sk2SetKey(set), lab = sk2SetLabel(S.plan, set);
+    if(items.some(it=>it.mid===mm.id && sk2SetKey(it.set)===key)){ sk2Toast('Already on the list for '+lab); return; }
+    const it = Object.assign({ id:sk2Uid(), mid:mm.id, set, c:Object.assign({}, c) }, sk2GuessMethod(mm));
+    items.push(it); S.calcEdit = null; sk2SaveItems(); sk2Panel();
+    sk2Toast('✓ Added '+mm.name+' for '+lab);
   };
   panel.querySelectorAll('[data-sk2c-open]').forEach(b=>b.addEventListener('click', ()=> openMatPicker(null, null, addMat, '')));
   panel.querySelectorAll('[data-sk2c-q]').forEach(b=>b.addEventListener('click', ()=> openMatPicker(null, null, addMat, b.dataset.sk2cQ)));
@@ -4644,7 +4772,8 @@ function sk2Panel(){
     : `<div class="sk2-tapebox off">Tape is OFF (top bar). Type the size below.</div>`);
   const lenInput = (id, val)=> ro ? '' : `<div class="sk2-field"><label>Type a size</label><div style="display:flex;gap:6px;"><input id="${id}" value="" placeholder="e.g. 12' 4 3/8&quot;  or  12 4" autocomplete="off"><button class="sk2-b main" data-sk2p="setlen" data-input="${id}">Set</button></div></div>`;
   let h = '';
-  if(S.multi && !ro){
+  if(S.matMode && !ro){ h = sk2MatPanelHTML(plan); }
+  else if(S.multi && !ro){
     const m = S.multi, n = sk2SetCount(m), pl = (k, one, many)=> k ? k+' '+(k===1?one:many) : '';
     const parts = [pl(m.segs.length,'wall','walls'), pl(m.rooms.length,'whole room','whole rooms'), pl(m.boxes.length,'box','boxes'), pl(m.columns.length,'column','columns'), pl(m.notes.length,'note','notes')].filter(Boolean).join(' · ');
     h = `<h3>${S.tool==='multi'?'☑️':'⬚'} ${n} selected</h3><p class="sub">${parts}<br>Tap a wall or item to add or remove it. Drag inside the dashed outline to move them together.</p>
@@ -4652,7 +4781,7 @@ function sk2Panel(){
       <div class="sk2-row"><button class="sk2-b" data-sk2p="mall">Select everything</button><button class="sk2-b" data-sk2p="mnone">Unselect</button></div>
       ${m.segs.length ? `<div class="sk2-field" style="margin-top:6px;"><label>Color all ${m.segs.length} selected wall${m.segs.length===1?'':'s'}</label>${sk2ColorPickerHTML((()=>{ const ks = new Set(m.segs.map(q=>{ const sh = plan.shapes.find(x=>x.id===q.sid); return sh ? sk2WallColorKey(sh, q.seg) : 'black'; })); return ks.size===1 ? [...ks][0] : ''; })(), 'multicolor')}</div>` : ''}
       <div class="sk2-row"><button class="sk2-b warn" data-sk2p="mdel">🗑 Delete selected</button></div>
-      ${sk2CalcHTML(plan, m)}`;
+      ${(m.segs.length || m.rooms.length) ? `<div class="sk2-row" style="margin-top:12px;"><button class="sk2-b main" style="width:100%;" data-sk2p="calcsel">🧮 Materials for what's selected</button></div>` : ''}`;
   } else if(S.tool==='pick' && !ro){
     let tot = 0; S.picks.forEach(p=>{ const sh = plan.shapes.find(x=>x.id===p.sid); if(sh) tot += sk2SegLen(sh, p.seg) - sk2DoorWidthOn(plan, sh, p.seg); });
     h = `<h3>📐 Add up linear feet</h3><p class="sub">Tap walls on the sketch to add or remove them. Door openings are taken out.</p>
@@ -4738,7 +4867,7 @@ function sk2Panel(){
   el.innerHTML = h;
   if(S._panelKey === (S.multi ? 'multi' : sel ? sel.kind+(sel.id||sel.sid||sel.rid||'') : S.tool)) el.scrollTop = _keepScroll;
   S._panelKey = (S.multi ? 'multi' : sel ? sel.kind+(sel.id||sel.sid||sel.rid||'') : S.tool);
-  if(S.multi && !ro) sk2BindCalc();
+  if((S.multi || S.matMode) && !ro) sk2BindCalc();
   // wire the panel
   el.querySelectorAll('[data-sk2p]').forEach(b=>b.addEventListener('click', ()=>sk2PanelAction(b.dataset.sk2p, b)));
   ['sk2-len','sk2-boxw','sk2-boxd'].forEach(id=>{ const i = document.getElementById(id); if(i) i.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); sk2PanelAction(id==='sk2-len'?'setlen':'boxsize', {dataset:{input:id}}); } }); });
@@ -4751,18 +4880,19 @@ function sk2PanelAction(a, btn){
   const S = STATE.sk2, plan = S.plan, sel = S.sel;
   if(a==='mcopy'){ sk2Copy(); return; }
   if(a==='calcsend'){
-    const lines = sk2ExportLines(), mode = (btn && btn.dataset && btn.dataset.mode) || 'add';
-    if(!lines.length){ sk2Toast('Nothing to add — the amounts are all 0'); return; }
+    const pend = sk2PendingItems(), lines = sk2ExportLines(), mode = 'add';
+    if(!pend.length){ sk2Toast('Everything is already on the Pricing Calculator'); return; }
     const f = sk2JobRec();
+    if(f && !f.pricingBreakdown) f.pricingBreakdown = defaultPricingBreakdown();
+    const mark = ()=>{ const sent = sk2SentMap(); pend.forEach(r=>{ sent[r.it.id] = r.q; S.plan.calcSentQty[r.it.id] = r.q; }); S.dirty = true; };
     if(f){
-      if(!f.pricingBreakdown) f.pricingBreakdown = defaultPricingBreakdown();
-      const r = pcMergeLines(ensurePricingDefaults(f.pricingBreakdown), lines, mode); f.pricingBreakdown.savedAt = nowISO();
+      ensurePricingDefaults(f.pricingBreakdown); const r = lines.length ? pcMergeLines(f.pricingBreakdown, lines, mode) : {added:0, updated:0}; mark(); f.pricingBreakdown.savedAt = nowISO();
       saveRecord('onsite', f).catch(()=>{});
-      sk2Panel(); sk2Toast('✓ On the Pricing Calculator: '+[r.added ? r.added+' added' : '', r.updated ? r.updated+' updated' : ''].filter(Boolean).join(', ')+' — just fill in the prices');
+      sk2Panel(); sk2Toast('✓ On the Pricing Calculator: '+([r.added ? r.added+' added' : '', r.updated ? r.updated+' updated' : ''].filter(Boolean).join(', ') || 'up to date')+' — just fill in the prices');
     } else {
       // a worksheet that isn't submitted yet: the list rides with the sketch and goes in when its calculator is opened
-      S.plan.calcSent = (S.plan.calcSent||[]).concat([{ id:sk2Uid(), lines, mode }]); S.dirty = true;
-      sk2Toast('✓ Saved with this sketch — the items go on the Pricing Calculator when you open it for this job. Tap Save on the sketch.');
+      if(lines.length) S.plan.calcSent = (S.plan.calcSent||[]).concat([{ id:sk2Uid(), lines, mode }]); mark();
+      sk2Panel(); sk2Toast('✓ Saved with this sketch — the items go on the Pricing Calculator when you open it for this job. Tap Save on the sketch.');
     }
     return;
   }
@@ -4787,15 +4917,20 @@ function sk2PanelAction(a, btn){
     else if(area==='floor' || area==='ceiling'){ it.method = area; it.p = areaP; delete it.p2; delete it.where; }
     else { delete it.where; if(['walls'].includes(area)){ if(g.method && !['floor','ceiling','manual'].includes(g.method)){ it.method = g.method; it.p = g.p; if(g.p2!=null) it.p2 = g.p2; } else { it.method = sheetA ? 'sheets' : 'wall'; it.p = areaP || 32; } } }
     S.calcEdit = null; sk2SaveItems(); sk2Panel();
-    const x = sk2CalcCtx(S.plan, S.multi||sk2EmptySet(), sk2CalcSettings());
-    if((area==='floor' || area==='ceiling') && !x.rooms.length) sk2Toast('Counted on the '+area+' — tap inside a room and pick 🧮 Materials for this room to get its '+area+' area');
+    const x = sk2ItemCtx(S.plan, it);
+    if((area==='floor' || area==='ceiling') && !x.rooms.length) sk2Toast('This item was added for walls only — no room picked, so there\'s no '+area+' area. Pick a whole room and add it again.');
+    S.calcEdit = +btn.dataset.i; sk2Panel();
     return;
   }
   if(a==='calcedit'){ const i = +btn.dataset.i; S.calcEdit = (S.calcEdit===i ? null : i); sk2Panel(); return; }
-  if(a==='calcdel'){ const items = sk2CalcItems(), i = +btn.dataset.i; items.splice(i, 1); S.calcEdit = null; sk2SaveItems(); sk2Panel(); return; }
-  if(a==='calcall'){ S.tool = 'multi'; sk2SelectAll(); return; }
-  if(a==='calcsel'){ const m = sk2CurrentSet(); S.tool = 'multi'; sk2SetMulti(m); return; }
-  if(a==='calccopy'){ const t = sk2CalcText(plan, S.multi||sk2EmptySet()); const done = ()=>sk2Toast('📄 Materials list copied — paste it into the estimate or a note');
+  if(a==='calcdel'){ const items = sk2CalcItems(), i = +btn.dataset.i, it = items[i]; if(!it) return; const was = +sk2SentMap()[it.id] || 0;
+    items.splice(i, 1); S.calcEdit = null; sk2SaveItems(); sk2Panel(); if(was) sk2Toast('Removed from this list — it\'s still on the Pricing Calculator, change it there if you need to'); return; }
+  if(a==='calcrecount'){ const it = sk2CalcItems()[+btn.dataset.i]; if(!it || !S.multi) return; it.set = sk2SetOnly(S.multi); it.c = Object.assign({}, sk2CalcSettings()); sk2SaveItems(); sk2Panel(); sk2Toast('↻ Now counted for '+sk2SetLabel(S.plan, it.set)); return; }
+  if(a==='calcsetall'){ const c = sk2CalcSettings(); sk2CalcItems().forEach(it=>{ it.c = Object.assign({}, c); }); S.calcSet = false; sk2SaveItems(); sk2Panel(); sk2Toast('Settings used for every item on the list'); return; }
+  if(a==='matback'){ S.matMode = false; S.calcEdit = null; S.calcSet = false; S.multi = null; S.tool = 'select'; sk2Draw(); sk2Panel(); return; }
+  if(a==='calcall'){ S.matMode = true; S.calcEdit = null; S.tool = 'multi'; sk2SelectAll(); return; }
+  if(a==='calcsel'){ const m = sk2CurrentSet(); S.matMode = true; S.calcEdit = null; S.tool = 'multi'; sk2SetMulti(m); return; }
+  if(a==='calccopy'){ const t = sk2CalcText(plan); const done = ()=>sk2Toast('📄 Materials list copied — paste it into the estimate or a note');
     if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, ()=>{ prompt('Copy this list:', t); }); else prompt('Copy this list:', t); return; }
   if(a==='mpaste'){ sk2Paste(); return; }
   if(a==='mall'){ sk2SelectAll(); return; }
@@ -8587,8 +8722,8 @@ function pcMergeLines(pb, lines, mode){
   let added = 0, updated = 0;
   lines.forEach(l=>{
     const ex = (pb.materialLines||[]).find(m=>m.materialId===l.materialId);
-    if(ex){ ex.qty = String(mode==='replace' ? l.qty : (parseFloat(ex.qty)||0) + l.qty); ex.src = 'sketch'; updated++; }
-    else { pb.materialLines.push({ id:uid(), materialId:l.materialId, unitPrice:'', qty:String(l.qty), unitType:l.unitType||'each', store:'', src:'sketch' }); added++; }
+    if(ex){ ex.qty = String(mode==='replace' ? l.qty : Math.max(0, (parseFloat(ex.qty)||0) + l.qty)); ex.src = 'sketch'; updated++; }
+    else if(l.qty > 0){ pb.materialLines.push({ id:uid(), materialId:l.materialId, unitPrice:'', qty:String(l.qty), unitType:l.unitType||'each', store:'', src:'sketch' }); added++; }
   });
   return { added, updated };
 }
@@ -11948,6 +12083,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.17-a</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.19-a</div>
 </body>
 </html>
