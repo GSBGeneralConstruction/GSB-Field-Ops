@@ -203,6 +203,19 @@ body.jobsite #net-banner{display:none !important;}
 .wr-bar{margin:8px 0;} .wr-bar-top{display:flex;justify-content:space-between;gap:8px;font-size:13.5px;margin-bottom:4px;}
 .wr-track{height:9px;background:#F0ECE2;border-radius:6px;overflow:hidden;} .wr-fill{height:100%;background:#B3261E;border-radius:6px;}
 .pj-more{margin-top:16px;border:1px solid var(--line);border-radius:8px;background:#FBFAF6;}
+.pj-secs{margin-top:12px;} .pj-secs .pj-sec{margin-top:6px;background:#fff;} .pj-secs .pj-sec[open]{background:#FBFAF6;}
+.pj-more-body{padding:4px 14px 14px;}
+.pj-next{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;} .pj-next span{background:#F3EFE4;border:1px solid #E6DFCD;border-radius:14px;padding:4px 11px;font-size:13px;font-weight:600;color:#4a3f27;}
+.pj-desc{margin-top:3px;font-size:13px;color:var(--muted);} .pj-desc summary{list-style:none;cursor:pointer;} .pj-desc summary::-webkit-details-marker{display:none;} .pj-desc summary span{color:var(--brown,#7A6A45);font-weight:600;} .pj-desc[open] summary{display:none;}
+.pj-search{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:16px;margin:4px 0 12px;background:#fff;}
+.pj-list{display:flex;flex-direction:column;gap:8px;}
+.pj-row{border:1px solid var(--line);border-radius:10px;background:#fff;} .pj-row.open{border-color:var(--brown,#7A6A45);}
+.pj-row-head{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;padding:12px 14px;text-align:left;cursor:pointer;font:inherit;color:inherit;}
+.pj-row-main{flex:1;min-width:0;} .pj-row-main b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .pj-row-main small{color:var(--muted);font-size:12.5px;}
+.pj-mini{display:flex;gap:3px;flex:none;} .pj-mini i{display:block;width:16px;height:6px;border-radius:3px;background:#E6DFCD;} .pj-mini i.on{background:#3F7D4F;}
+.pj-row-caret{color:var(--muted);font-size:13px;flex:none;}
+.pj-row-body{padding:0 12px 12px;} .pj-row-body .project-card{margin:0;border:0;padding:4px 2px 0;box-shadow:none;}
+@media (max-width:700px){ .pj-mini{display:none;} }
 .pj-more > summary{list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:11px 14px;cursor:pointer;font-weight:600;font-size:13.5px;}
 .pj-more > summary::-webkit-details-marker{display:none;}
 .pj-more > summary::after{content:'Show ▾';margin-left:auto;font-size:12px;color:var(--brown,#7A6A45);font-weight:600;}
@@ -270,6 +283,7 @@ table.hist td{padding:7px 6px;border-bottom:1px solid var(--line);vertical-align
 .sn-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;} .sn-chips button{background:#F3EFE4;border:1px solid #E1D8C2;border-radius:15px;padding:6px 11px;font:600 12.5px Inter,sans-serif;color:#4a3f27;cursor:pointer;}
 .sn-own{display:flex;gap:6px;} .sn-own input{flex:1;min-width:0;padding:9px 10px;border:1px solid var(--line);border-radius:7px;font-size:16px;}
 
+.co-quick{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:-4px 0 12px;}
 .banner-note{background:var(--brown-light);border:1px solid var(--line);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--brown-dark);margin-bottom:18px;}
 .photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-top:12px;}
 .photo-card{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;}
@@ -335,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.23-a';
+const APP_VERSION = 'v2026.11.24-a';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -8344,21 +8358,39 @@ function estimateForm(d){
 
 function estimatesListView(){
   const lostAll = DB.estimates.filter(e=>e.lost);
-  const list = [...DB.estimates].filter(e=> STATE.showLost ? !!e.lost : (!e.archived && !e.lost && !DB.contracts.some(c=>c.estimateId===e.id && recSigned('contracts', c)))).sort((a,b)=>String(b.dateCreated||'').localeCompare(String(a.dateCreated||'')));
   const foot = (lostAll.length || STATE.showLost) ? `<div style="text-align:center;margin-top:10px;"><button class="btn ghost small" data-action="toggle-show-lost">${STATE.showLost ? '← Back to estimates' : '👎 Didn\'t move forward ('+lostAll.length+')'}</button></div>` : '';
-  return `${STATE.showLost ? '' : dupCleanupHTML()}${STATE.showLost ? '<div class="banner-note" style="margin-bottom:10px;">Estimates where the client didn\'t move forward. Open one to see why — or to undo it if they come back.</div>' : ''}<div class="card" style="padding:8px 20px;">
-    ${list.length===0 ? emptyState('No estimates yet','') : list.map(e=>`
+  const byDate = (a,b)=>String(b.dateCreated||'').localeCompare(String(a.dateCreated||''));
+  const cOf = e=>DB.contracts.find(c=>c.estimateId===e.id && recSigned('contracts', c));
+  const row = (e, tag)=>`
       <div class="list-row">
-        <div class="main"><b>${esc(e.clientName)}</b> <span style="color:var(--muted);font-size:13px"> — ${esc(e.jobName)}</span>
+        <div class="main"><b>${esc(e.clientName)}</b>${e.jobName?` <span style="color:var(--muted);font-size:13px"> — ${esc(e.jobName)}</span>`:''}
           <div class="meta">${fmtDate(e.date)} &nbsp;·&nbsp; Total ${money(totalEstimate(e))}</div></div>
-        <div style="display:flex;gap:8px;align-items:center;">
-          ${(!e.lost && !e.signedAt && jobHasSigned(e)) ? `<span class="tag overdue">OLD COPY — CLIENT SIGNED ANOTHER ONE</span>` : ''}${e.lost ? `<span class="tag overdue">NO — ${esc(e.lost.reason||'')}</span>` : `<span class="tag ${e.status==='signed'?'reviewed':'pending'}">${e.status==='signed'?(e.signedOnPaper?'SIGNED ON PAPER':'SIGNED'):'AWAITING SIGNATURE'}</span>`}
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
+          ${tag}
           ${contractForEstimate(e) ? `<button class="btn ghost small" data-action="open-docs-ready" data-id="${e.id}">📄 Estimate & Contract</button>` : ''}
-          <button class="btn ghost small" data-action="del-estimate" data-id="${e.id}">Delete</button>
+          ${e.signedAt ? '' : `<button class="btn ghost small" data-action="del-estimate" data-id="${e.id}">Delete</button>`}
           <button class="btn ghost small" data-action="view-estimate" data-id="${e.id}">Open</button>
         </div>
-      </div>`).join('')}
-  </div>${foot}`;
+      </div>`;
+  if(STATE.showLost){
+    const lost = [...lostAll].sort(byDate);
+    return `<div class="banner-note" style="margin-bottom:10px;">Estimates where the client didn't move forward. Open one to see why — or to undo it if they come back.</div><div class="card" style="padding:8px 20px;">
+      ${lost.length ? lost.map(e=>row(e, `<span class="tag overdue">NO — ${esc(e.lost.reason||'')}</span>`)).join('') : emptyState('Nothing here','')}</div>${foot}`;
+  }
+  const live = DB.estimates.filter(e=>!e.lost);
+  const waiting = live.filter(e=>!e.signedAt && !e.archived && !cOf(e)).sort(byDate);
+  const contractNext = live.filter(e=>e.signedAt && !cOf(e) && !e.archived).sort(byDate);
+  const done = live.filter(e=>!!cOf(e)).sort((a,b)=>String(cOf(b).signedAt||'').localeCompare(String(cOf(a).signedAt||'')));
+  const weekAgo = new Date(Date.now() - 7*86400000).toISOString();
+  const doneRecent = done.filter(e=>String(cOf(e).signedAt||'') >= weekAgo), doneShown = STATE.showAllDoneEst ? done : doneRecent;
+  const sec = (title, inner)=>`<div class="section-label">${title}</div><div class="card" style="padding:8px 20px;">${inner}</div>`;
+  return `${dupCleanupHTML()}
+    ${sec('Waiting on the client to sign'+(waiting.length?' ('+waiting.length+')':''), waiting.length ? waiting.map(e=>row(e, (jobHasSigned(e) ? `<span class="tag overdue">OLD COPY — CLIENT SIGNED ANOTHER ONE</span>` : `<span class="tag pending">AWAITING SIGNATURE</span>`))).join('') : `<div class="subtle" style="padding:12px 0;">✓ Nothing waiting.</div>`)}
+    ${contractNext.length ? sec('Estimate signed — contract still to sign ('+contractNext.length+')', contractNext.map(e=>row(e, `<span class="tag reviewed">ESTIMATE SIGNED${e.signedOnPaper?' ON PAPER':''} ${fmtDate(String(e.signedAt).slice(0,10))}</span>`)).join('')) : ''}
+    ${done.length ? `<div class="section-label" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><span>${STATE.showAllDoneEst ? 'All finished jobs ('+done.length+')' : 'Finished — contract signed in the last 7 days'+(doneRecent.length?' ('+doneRecent.length+')':'')}</span>${done.length > doneRecent.length || STATE.showAllDoneEst ? `<button class="btn ghost small" data-action="toggle-all-done-est">${STATE.showAllDoneEst ? 'Show only the last 7 days' : 'Show all '+done.length+' finished'}</button>` : ''}</div>
+      <div class="card" style="padding:4px 20px;background:#FBFAF6;">${doneShown.length ? doneShown.map(e=>row(e, `<span class="tag reviewed">✓ CONTRACT SIGNED${cOf(e).signedAt?' '+fmtDate(String(cOf(e).signedAt).slice(0,10)):''}</span>`)).join('') : `<div class="subtle" style="padding:10px 0;">No contracts signed in the last 7 days.</div>`}
+      <div class="subtle" style="font-size:12px;padding:6px 0 10px;">Finished jobs are always kept with the client — <b>Clients</b> → the client → their project.</div></div>` : ''}
+    ${foot}`;
 }
 
 const ESTIMATE_EMAIL_SUBJECT = 'Your Project Estimate — Ready to Sign — GSB General Construction Inc';
@@ -10769,36 +10801,69 @@ function progressBar(project){
     </div>`;
 }
 
+/* ---- a project, kept simple: the top shows what matters; everything else is one tap away (nothing removed) ---- */
+function pjSigned(d){ return d ? fmtDate(String(d).slice(0,10)) : ''; }
+function pjNextStep(pr){
+  if(pr.completed) return '';
+  if(!pr.estimateSigned) return 'Next: get the estimate signed';
+  if(!pr.contractSigned) return 'Next: get the contract signed';
+  if(pr.permitStatus==='sent') return 'Waiting on the permit';
+  if(pr.permitStatus && !['approved','not_required','sent'].includes(pr.permitStatus)) return 'Next: apply for the permit';
+  if(!pr.constructionInProgress) return 'Next: start construction';
+  return '🔨 Building';
+}
+function pjQbSummary(c, pr){
+  try{
+    const b = QB.bills && QB.bills[c.id]; const pk = 'project:'+pr.id;
+    const items = b ? b.items.filter(it=>it.projectKey===pk) : [];
+    const pl = QB.plans && QB.plans[c.id]; const mine = pl ? pl.items.filter(it=>it.key===pk || it.parent===pk) : [];
+    const needs = mine.filter(it=>it.status==='new' || it.status==='changed').length;
+    const out = [];
+    if(needs) out.push(needs+' to sync');
+    if(items.length){ const billed = items.filter(it=>it.state!=='unbilled').reduce((t,it)=>t+it.amount,0), total = items.reduce((t,it)=>t+it.amount,0);
+      out.push('Billed '+money(billed)+' of '+money(total)); const nx = items.find(it=>it.state==='unbilled'); if(nx) out.push('next: '+nx.label+' '+money(nx.amount)); }
+    else if(mine.length && !needs) out.push('In QuickBooks');
+    return { meta: out.join(' · '), next: (()=>{ const nx = items.find(it=>it.state==='unbilled'); return nx ? 'Next bill: '+nx.label+' '+money(nx.amount) : ''; })() };
+  }catch(e){ return { meta:'', next:'' }; }
+}
+function pjSec(pr, key, title, meta, inner, defOpen){
+  if(!inner || !String(inner).trim()) return '';
+  const k = pr.id+':'+key, st = STATE.pjOpen && STATE.pjOpen[k];
+  const open = st===undefined ? !!defOpen : st;
+  return `<details class="pj-more pj-sec" data-pjkey="${k}" ${open?'open':''}><summary><span>${title}</span><span class="pj-more-meta">${meta||''}</span></summary><div class="pj-more-body">${inner}</div></details>`;
+}
 function projectCardHTML(c, pr, opts){
   opts = opts || {};
   const p = perms();
   const cs = checkupStatus(pr);
   const displayName = pr.projectName || pr.description || '(Unnamed Project)';
-  return `
-    <div class="project-card">
-      <div class="list-row" style="border:none;padding-bottom:0;">
-        <div class="main">
-          <div class="pname">${esc(displayName)} ${opts.showClient ? `<span class="client-chip" data-action="jump-client" data-id="${c.id}" style="cursor:pointer;">${esc(c.name)}</span>` : ''}</div>
-          <div class="meta">${fmtDate(pr.date)} &nbsp;·&nbsp; ${p.money?`<span class="mono">${money(pr.contractAmount)}</span>`:`<span class="mono" style="filter:blur(5px);user-select:none;">$XX,XXX</span>`}</div>
-          ${pr.description ? `<div class="meta" style="margin-top:2px;">${esc(pr.description)}</div>` : ''}
-        </div>
-        ${p.stageToggle ? `<button class="btn ghost small" data-action="rename-project" data-cid="${c.id}" data-pid="${pr.id}">Rename</button>` : ''}
-      </div>
-      ${progressBar(pr)}
-      ${typeof qbProjectBlock==='function' ? qbProjectBlock(c, pr, opts) : ''}
-      ${(pr.onsiteId || pr.estimateId || pr.contractId) ? `
-      <div class="section-label" style="margin-top:16px;">Project Documents</div>
+  const desc = String(pr.description||'');
+  const descHTML = !desc ? '' : desc.length > 160
+    ? `<details class="pj-desc"><summary>${esc(desc.slice(0,150).replace(/\s+\S*$/,''))}… <span>more</span></summary><div>${esc(desc)}</div></details>`
+    : `<div class="meta" style="margin-top:2px;">${esc(desc)}</div>`;
+  // ---- section summaries ----
+  const es = pr.estimateId && DB.estimates.find(x=>x.id===pr.estimateId), ct = pr.contractId && DB.contracts.find(x=>x.id===pr.contractId);
+  const nScan = (pr.signedEstimateScans||[]).length + (pr.signedContractScans||[]).length;
+  const docsMeta = [pr.estimateId ? 'Estimate'+(es && es.signedAt ? ' ✓ '+pjSigned(es.signedAt) : pr.estimateSigned ? ' ✓' : '') : '', pr.contractId ? 'Contract'+(ct && (ct.signedAt||ct.status==='signed') ? ' ✓ '+pjSigned(ct.signedAt) : pr.contractSigned ? ' ✓' : '') : '', nScan ? nScan+' paper photo'+(nScan===1?'':'s') : ''].filter(Boolean).join(' · ');
+  const cos = pr.contractId ? changeOrdersForProject(pr) : [];
+  const coMeta = cos.length ? cos.length+' change order'+(cos.length===1?'':'s')+' · '+cos.filter(o=>o.status==='signed').length+' signed · total '+money(projectCurrentTotal(pr)) : 'None yet';
+  const statusMeta = ['Permit: '+String(pr.permitStatus||'not_required').replace('_',' '), pr.completed ? 'Completed '+fmtDate(pr.completedDate) : pr.constructionInProgress ? 'Building' : 'Not started',
+    cs.hasCompleted ? (pr.checkupLetterSent ? 'check-up letter sent' : cs.overdue ? '⚠ check-up letter due' : cs.daysLeft+' days to check-up') : ''].filter(Boolean).join(' · ');
+  const qbFull = (!opts.showClient && typeof qbProjectBlock==='function') ? qbProjectBlock(c, pr, opts) : '';
+  const qbS = qbFull ? pjQbSummary(c, pr) : { meta:'', next:'' };
+  const next = pjNextStep(pr);
+  const docsInner = `      ${(pr.onsiteId || pr.estimateId || pr.contractId) ? `
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${pr.onsiteId ? `<button class="btn ghost small" data-action="view-project-onsite" data-id="${pr.onsiteId}">On-Site Worksheet</button>` : ''}
         ${pr.onsiteId && DB.onsite.find(o=>o.id===pr.onsiteId) ? `<button class="btn ghost small" data-action="assoc-open-project" data-id="${pr.onsiteId}">🏢 Association Package${(DB.onsite.find(o=>o.id===pr.onsiteId)||{}).assoc ? ' ✓' : ''}</button>` : ''}
         ${pr.onsiteId && DB.onsite.find(o=>o.id===pr.onsiteId) ? `<button class="btn ghost small" data-action="view-project-sketches" data-id="${pr.onsiteId}">Sketches (${ensureSketches(DB.onsite.find(o=>o.id===pr.onsiteId)).length})</button>` : ''}
-        ${pr.estimateId ? `<button class="btn ghost small" data-action="view-project-estimate" data-id="${pr.estimateId}">Estimate${(()=>{const es=DB.estimates.find(x=>x.id===pr.estimateId); return es&&es.signedAt?' ✓ Signed '+fmtDate(es.signedAt):'';})()}</button>` : ''}
-        ${pr.contractId ? `<button class="btn ghost small" data-action="view-project-contract" data-id="${pr.contractId}">Contract${(()=>{const ct=DB.contracts.find(x=>x.id===pr.contractId); return ct&&ct.signedAt?' ✓ Signed '+fmtDate(ct.signedAt):'';})()}</button>` : ''}
+        ${pr.estimateId ? `<button class="btn ghost small" data-action="view-project-estimate" data-id="${pr.estimateId}">Estimate${(()=>{const es=DB.estimates.find(x=>x.id===pr.estimateId); return es&&es.signedAt?' ✓ Signed '+fmtDate(String(es.signedAt).slice(0,10)):'';})()}</button>` : ''}
+        ${pr.contractId ? `<button class="btn ghost small" data-action="view-project-contract" data-id="${pr.contractId}">Contract${(()=>{const ct=DB.contracts.find(x=>x.id===pr.contractId); return ct&&ct.signedAt?' ✓ Signed '+fmtDate(String(ct.signedAt).slice(0,10)):'';})()}</button>` : ''}
       </div>` : ''}
       ${(pr.signedEstimateScans||[]).length ? `<div class="section-label" style="margin-top:12px;">Signed Estimate — Paper Copy (${pr.signedEstimateScans.length} photo${pr.signedEstimateScans.length===1?'':'s'})</div><div class="photo-grid">${pr.signedEstimateScans.map(f=>planCardHTML(f,false)).join('')}</div>` : ''}
       ${(pr.signedContractScans||[]).length ? `<div class="section-label" style="margin-top:12px;">Signed Contract — Paper Copy (${pr.signedContractScans.length} photo${pr.signedContractScans.length===1?'':'s'})</div><div class="photo-grid">${pr.signedContractScans.map(f=>planCardHTML(f,false)).join('')}</div>` : ''}
-      ${changeOrdersSectionHTML(c, pr, p)}
-      ${p.stageToggle ? `<div class="stage-controls">
+`;
+  const statusInner = `      ${p.stageToggle ? `<div class="stage-controls">
         <button class="btn ghost small" data-action="toggle-permit" data-cid="${c.id}" data-pid="${pr.id}">Permit: ${String(pr.permitStatus||'not_required').replace('_',' ')} (click to advance)</button>
         <button class="btn ghost small" data-action="toggle-building" data-cid="${c.id}" data-pid="${pr.id}">${pr.constructionInProgress? '✓ In Progress':'Mark: Construction Started'}</button>
         ${pr.completed ? `<button class="btn ghost small" data-action="send-review-request" data-cid="${c.id}" data-pid="${pr.id}">${pr.reviewRequestedAt?'✓ Review requested '+fmtDate(pr.reviewRequestedAt.slice(0,10))+' — send again':'Ask for a Google Review'}</button>` : ''}
@@ -10814,13 +10879,29 @@ function projectCardHTML(c, pr, opts){
       ${pr.warrantyNotes.length>0 ? `<div class="section-label" style="margin-top:16px;">Warranty / Follow-Up Visits</div>
         ${pr.warrantyNotes.map(w=>`<div class="notes-block" style="margin-bottom:6px;">${fmtDate(w.date)} — ${esc(w.note)}</div>`).join('')}` : ''}
       ${pr.completed && p.stageToggle ? `<button class="btn ghost small" style="margin-top:10px;" data-action="add-warranty" data-cid="${c.id}" data-pid="${pr.id}">+ Log Warranty / Follow-Up Visit</button>` : ''}
-
-      ${(()=>{ const nB = (pr.beforePhotos||[]).length, nA = (pr.afterPhotos||[]).length, nP = (pr.permits||[]).length, ins = pr.inspections||[];
-        const next = ins.map(i=>i.date).filter(d=>d && d >= todayStr()).sort()[0];
-        const bits = [nB+nA ? (nB+nA)+' photo'+(nB+nA===1?'':'s') : '', nP ? nP+' permit'+(nP===1?'':'s') : '', ins.length ? ins.length+' inspection'+(ins.length===1?'':'s')+(next ? ' (next '+fmtDate(next)+')' : '') : ''].filter(Boolean);
-        const open = !!(STATE.pjOpen && STATE.pjOpen[pr.id]);
-        return `<details class="pj-more" data-pjkey="${pr.id}" ${open?'open':''}><summary><span>📁 Floor plans, photos, permits &amp; inspections</span><span class="pj-more-meta">${bits.join(' · ') || 'Nothing added yet'}</span></summary><div class="pj-more-body">`; })()}
-      <div class="section-label" style="margin-top:6px;">Floor Plans — Old &amp; New</div>
+`;
+  const moreMeta = (()=>{ const nB = (pr.beforePhotos||[]).length, nA = (pr.afterPhotos||[]).length, nP = (pr.permits||[]).length, ins = pr.inspections||[];
+    const nx = ins.map(i=>i.date).filter(d=>d && d >= todayStr()).sort()[0];
+    return [nB+nA ? (nB+nA)+' photo'+(nB+nA===1?'':'s') : '', nP ? nP+' permit'+(nP===1?'':'s') : '', ins.length ? ins.length+' inspection'+(ins.length===1?'':'s')+(nx ? ' (next '+fmtDate(nx)+')' : '') : ''].filter(Boolean).join(' · ') || 'Nothing added yet'; })();
+  return `
+    <div class="project-card pj2">
+      <div class="list-row" style="border:none;padding-bottom:0;">
+        <div class="main">
+          <div class="pname">${esc(displayName)} ${opts.showClient ? `<span class="client-chip" data-action="jump-client" data-id="${c.id}" style="cursor:pointer;">${esc(c.name)}</span>` : ''}</div>
+          <div class="meta">${fmtDate(pr.date)} &nbsp;·&nbsp; ${p.money?`<span class="mono">${money(projectCurrentTotal(pr))}</span>`:`<span class="mono" style="filter:blur(5px);user-select:none;">$XX,XXX</span>`}</div>
+          ${descHTML}
+        </div>
+        ${p.stageToggle ? `<button class="btn ghost small" data-action="rename-project" data-cid="${c.id}" data-pid="${pr.id}">Rename</button>` : ''}
+      </div>
+      ${progressBar(pr)}
+      ${(next || qbS.next || (cs.overdue && !pr.checkupLetterSent)) ? `<div class="pj-next">${[next, qbS.next ? '💵 '+qbS.next : '', (cs.overdue && !pr.checkupLetterSent) ? '⚠ Check-up letter is due' : ''].filter(Boolean).map(t=>`<span>${esc(t)}</span>`).join('')}</div>` : ''}
+      ${opts.showClient && typeof qbProjectBlock==='function' ? qbProjectBlock(c, pr, opts) : ''}
+      <div class="pj-secs">
+        ${pjSec(pr, 'docs', '📄 Documents', docsMeta, docsInner, false)}
+        ${qbFull ? pjSec(pr, 'qb', '💵 QuickBooks &amp; payments', qbS.meta, qbFull, false) : ''}
+        ${pr.contractId ? pjSec(pr, 'co', '✍️ Change orders', coMeta, changeOrdersSectionHTML(c, pr, p).replace(/^\s*<div class="section-label"[^>]*>Change Orders<\/div>/, ''), false) : ''}
+        ${pjSec(pr, 'status', '🛠 Job status &amp; follow-up', statusMeta, statusInner, false)}
+        ${pjSec(pr, 'more', '📁 Floor plans, photos, permits &amp; inspections', moreMeta, `      <div class="section-label" style="margin-top:6px;">Floor Plans — Old &amp; New</div>
       ${planFilesSectionHTML(projectPlanFiles(pr), {editable:true, attrs:`data-owner="project" data-cid="${c.id}" data-pid="${pr.id}"`})}
       <div class="section-label" style="margin-top:16px;">Before Photos</div>
       ${(pr.beforePhotos && pr.beforePhotos.length) ? `<div class="photo-grid">${pr.beforePhotos.map(pm=>stagePhotoCardHTML(pm, `data-cid="${c.id}" data-pid="${pr.id}" data-field="beforePhotos"`)).join('')}</div>` : `<span class="subtle">No before photos yet</span>`}
@@ -10841,7 +10922,8 @@ function projectCardHTML(c, pr, opts){
         <div class="notes-block" style="margin-bottom:6px;">${fmtDate(ins.date)} at ${esc(ins.time)}${ins.note ? ' — '+esc(ins.note) : ''}</div>
       `).join('') : `<span class="subtle">No inspections scheduled</span>`}
       ${p.stageToggle ? `<button class="btn ghost small" style="margin-top:10px;" data-action="add-inspection" data-cid="${c.id}" data-pid="${pr.id}">+ Add Inspection Date</button>` : ''}
-      </div></details>
+`, false)}
+      </div>
     </div>`;
 }
 
@@ -10890,6 +10972,26 @@ function clientDetailView(c){
 }
 
 /* ================= PROJECTS (Current / Completed) ================= */
+function pjStage(pr){
+  if(pr.completed) return ['Done', 'reviewed'];
+  if(pr.constructionInProgress) return ['Building', 'category'];
+  if(pr.contractSigned) return [pr.permitStatus==='sent' ? 'Waiting on permit' : 'Ready to start', 'pending'];
+  if(pr.estimateSigned) return ['Contract to sign', 'pending'];
+  return ['Estimate to sign', 'pending'];
+}
+function pjRowHTML(c, pr){
+  const p = perms(), open = !!(STATE.pjRowOpen && STATE.pjRowOpen[pr.id]), st = pjStage(pr);
+  const name = pr.projectName || pr.description || '(Unnamed Project)';
+  const segs = [pr.estimateSigned, pr.contractSigned, pr.permitStatus==='approved' || pr.permitStatus==='not_required', pr.constructionInProgress, pr.completed];
+  return `<div class="pj-row${open?' open':''}" data-pjfind="${esc((name+' '+c.name+' '+(pr.description||'')).toLowerCase())}">
+    <button type="button" class="pj-row-head" data-action="pj-row-toggle" data-pid="${pr.id}">
+      <span class="pj-row-main"><b>${esc(name)}</b><small>${esc(c.name)} · ${fmtDate(pr.date)}${p.money ? ' · '+money(projectCurrentTotal(pr)) : ''}</small></span>
+      <span class="pj-mini">${segs.map(on=>`<i class="${on?'on':''}"></i>`).join('')}</span>
+      <span class="tag ${st[1]}">${esc(st[0])}</span><span class="pj-row-caret">${open?'▴':'▾'}</span>
+    </button>
+    ${open ? `<div class="pj-row-body">${projectCardHTML(c, pr, {showClient:true})}</div>` : ''}
+  </div>`;
+}
 function renderProjects(){
   const tab = STATE.subtab.projects || 'current';
   const all = [];
@@ -10904,7 +11006,8 @@ function renderProjects(){
       <button data-subtab="projects:current" class="${tab==='current'?'active':''}">Current (${current.length})</button>
       <button data-subtab="projects:completed" class="${tab==='completed'?'active':''}">Completed (${completed.length})</button>
     </div>
-    ${list.length===0 ? emptyState('Nothing here yet','') : list.map(x=>projectCardHTML(x.c, x.pr, {showClient:true})).join('')}
+    ${list.length ? `<input id="pj-search" class="pj-search" placeholder="🔍 Search a job or client" autocomplete="off" value="${esc(STATE.pjSearch||'')}">` : ''}
+    ${list.length===0 ? emptyState('Nothing here yet','') : `<div class="pj-list">${list.map(x=>pjRowHTML(x.c, x.pr)).join('')}</div>`}
   `;
 }
 
@@ -11357,6 +11460,8 @@ function warrantyForm(cid,pid){
 function attachHandlers(){
   document.querySelectorAll('[data-nav]').forEach(el=>el.addEventListener('click', ()=>{ wsMirrorWrite(); const _changed = STATE.view!==el.dataset.nav; STATE.view=el.dataset.nav; STATE.activeSketchProjectId=null; STATE.activeOnsiteId=null; STATE.activeClientId=null; STATE.notifOpen=false; render(); if(_changed) window.scrollTo(0,0); }));
   document.querySelectorAll('details[data-pjkey]').forEach(d=>d.addEventListener('toggle', ()=>{ (STATE.pjOpen || (STATE.pjOpen = {}))[d.dataset.pjkey] = d.open; }));
+  document.querySelectorAll('[data-action="pj-row-toggle"]').forEach(el=>el.addEventListener('click', ()=>{ const id = el.dataset.pid; STATE.pjRowOpen = STATE.pjRowOpen || {}; STATE.pjRowOpen[id] = !STATE.pjRowOpen[id]; render(); }));
+  { const ps = document.getElementById('pj-search'); if(ps){ const run = ()=>{ const q = ps.value.trim().toLowerCase(); STATE.pjSearch = ps.value; document.querySelectorAll('.pj-row').forEach(r=>{ r.style.display = !q || q.split(/\s+/).every(w=>r.dataset.pjfind.includes(w)) ? '' : 'none'; }); }; ps.addEventListener('input', run); run(); } }
   document.querySelectorAll('[data-quick]').forEach(el=>el.addEventListener('click', ()=>{ wsMirrorWrite(); const [v, sub] = el.dataset.quick.split(':'); STATE.view = v; if(sub) STATE.subtab[v] = sub; STATE.activeSketchProjectId=null; STATE.activeOnsiteId=null; STATE.activeClientId=null; STATE.notifOpen=false; render(); window.scrollTo(0,0); }));
   document.querySelectorAll('[data-subtab]').forEach(el=>el.addEventListener('click', ()=>{ wsMirrorWrite(); setTimeout(pullFromCloud, 300); const [g,k]=el.dataset.subtab.split(':'); STATE.subtab[g]=k; STATE.activeOnsiteId=null; render(); }));
   bindClick('logout', ()=>{ STATE.user=null; STATE.view='home'; render(); });
@@ -11488,6 +11593,7 @@ Office@gsbconstructions.com`);
     render();
   }));
   bindClick('toggle-all-signed', ()=>{ STATE.showAllSigned = !STATE.showAllSigned; render(); });
+  bindClick('toggle-all-done-est', ()=>{ STATE.showAllDoneEst = !STATE.showAllDoneEst; render(); });
   document.querySelectorAll('[data-action="dedupe-docs"]').forEach(el=>el.addEventListener('click', async ()=>{
     const d = docDuplicates(); if(!d.length) return;
     const lines = d.map(x=>'• '+(x.kind==='estimate'?'Estimate':'Contract')+' — '+(x.rec.clientName||'')+(x.rec.jobName?' ('+x.rec.jobName+')':'')+' · '+fmtDate(String(x.rec.dateCreated||x.rec.date||'').slice(0,10))+' · '+money(x.kind==='estimate'?totalEstimate(x.rec):(x.rec.pricing&&x.rec.pricing.total)||0)).join('\n');
@@ -12217,6 +12323,10 @@ Office@gsbconstructions.com`);
     const ctr = pr.contractId ? DB.contracts.find(x=>x.id===pr.contractId) : null;
     STATE.modal = { type:'change-order-form', data:{ clientId:c.id, projectId:pr.id, clientName:c.name, jobName:pr.projectName||(ctr&&ctr.jobName)||'', address:(ctr&&ctr.address)||c.propertyAddress||'', previousTotal:projectCurrentTotal(pr) } }; render();
   }));
+  document.querySelectorAll('[data-action="co-quick"]').forEach(el=>el.addEventListener('click', ()=>{
+    const q = CO_QUICK[+el.dataset.i]; if(!q) return; const d = document.getElementById('co-desc'), a = document.getElementById('co-amount');
+    if(d){ d.value = (d.value.trim() ? d.value.trim()+'\n\n' : '') + q.text; d.focus(); } if(a && !a.value) a.value = '0';
+  }));
   bindClick('save-change-order', async (el)=>{
     const c = DB.clients.find(x=>x.id===el.dataset.cid); const pr = c && c.projects.find(x=>x.id===el.dataset.pid); if(!pr) return;
     const description = val('co-desc').trim(); const amount = parseFloat(val('co-amount'));
@@ -12511,6 +12621,11 @@ async function ensureClientExists(name, phone, details){
   return client;
 }
 /* ================= CHANGE ORDERS ================= */
+const CO_QUICK = [
+  { label:'Countertops — not responsible if they break', text:'ADDENDUM — EXISTING COUNTERTOPS\nThe Owner understands that existing countertops can crack, chip or break when they are removed during demolition, even when care is taken. GSB General Construction Inc will use reasonable care, but is not responsible for any cracking, chipping or breakage of the existing countertops during demolition or removal, and is not responsible for repairing or replacing them.\nThis adds terms only — there is no change to the contract price.' },
+  { label:'Existing items — removed at Owner\'s risk', text:'ADDENDUM — EXISTING ITEMS BEING REMOVED\nThe Owner understands that existing items being removed and kept (for example cabinets, fixtures, tile or doors) can be damaged during removal. GSB General Construction Inc will use reasonable care, but is not responsible for damage to these items during removal.\nThis adds terms only — there is no change to the contract price.' },
+  { label:'Other term (type it)', text:'ADDENDUM\n\nThis adds terms only — there is no change to the contract price.' },
+];
 const CO_TERMS = 'This Change Order amends the Construction Contract between GSB General Construction Inc and the Owner for the project named above. The work and price adjustment described here are added to (or removed from) the original contract. The Contract Price is adjusted by the amount shown, and the new Contract Price replaces the previous one. Payment for this change order is due as directed by GSB General Construction Inc. All other terms and conditions of the original contract remain in full effect. By signing, the Owner authorizes the change described and agrees to the adjusted price.';
 function moneySigned(v){ const n = parseFloat(v)||0; return (n<0?'−':'+') + money(Math.abs(n)); }
 function changeOrdersForProject(pr){ return DB.changeOrders.filter(o=>o.projectId===pr.id).sort((a,b)=>(a.dateCreated||'').localeCompare(b.dateCreated||'')); }
@@ -12524,6 +12639,9 @@ function changeOrderForm(d){
   return `<div class="modal-head"><h2 class="page-title" style="margin:0">New Change Order</h2><button class="close-x" data-action="close-modal">×</button></div>
     <div class="detail-grid" style="margin-bottom:12px;">${dg('Client',d.clientName)}${dg('Project',d.jobName)}${dg('Address',d.address)}${dg('Current Contract Total',money(d.previousTotal))}</div>
     <div class="field"><label>What is changing? (be specific)</label><textarea id="co-desc" rows="5" placeholder="e.g. Relocate kitchen sink to the island wall and add two outlets"></textarea></div>
+    <div class="co-quick"><span class="subtle" style="margin:0;">Quick wording (no price change):</span>
+      ${CO_QUICK.map((q,i)=>`<button type="button" class="btn ghost small" data-action="co-quick" data-i="${i}">＋ ${esc(q.label)}</button>`).join('')}</div>
+
     <div class="form-grid">
       <div class="field"><label>Price change ($) — use a minus sign for a credit</label><input id="co-amount" type="number" step="0.01" placeholder="e.g. 1850"></div>
       <div class="field"><label>Date</label><input id="co-date" type="date" value="${todayStr()}"></div>
@@ -12749,7 +12867,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.23-a</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.24-a</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
