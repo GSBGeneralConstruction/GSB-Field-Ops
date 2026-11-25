@@ -349,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.25-b';
+const APP_VERSION = 'v2026.11.25-c';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3116,6 +3116,41 @@ function sk2FixAll(plan){
   }
   if(!best) return null;
   x = best.x;
+  let nudged = 0;
+  if(best.off){
+    // some numbers can't fit with the angles exactly as drawn (hand-drawn corners are a few degrees off):
+    // nudge the angles — as little as possible — until every measured wall fits. Corners on a wall (T's) stay on it.
+    let y = Float64Array.from(x);
+    for(let it=0; it<40; it++){
+      const A = Array.from({length:V}, ()=>new Float64Array(V)), bv = new Float64Array(V);
+      const row = (c, t, w)=>{ const ks = Object.keys(c).map(Number); ks.forEach(i=>{ bv[i] += w*c[i]*t; ks.forEach(j=>{ A[i][j] += w*c[i]*c[j]; }); }); };
+      const add = (c, i, kx, ky)=>{ c[2*i] = (c[2*i]||0) + kx; c[2*i+1] = (c[2*i+1]||0) + ky; };
+      const cur = (sg)=>{ const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1], L = Math.hypot(dx,dy) || 1; return {x:dx/L, y:dy/L}; };
+      segs.forEach(sg=>{
+        const d = cur(sg);
+        let c = {}; add(c, sg.b, d.x, d.y); add(c, sg.a, -d.x, -d.y);
+        if(sg.m!=null) row(c, sg.m, 1e4); else { c[S] = -sg.L0; row(c, 0, 1); }
+        c = {}; add(c, sg.b, sg.n.x, sg.n.y); add(c, sg.a, -sg.n.x, -sg.n.y); row(c, 0, 3);                     // stay close to the drawn angle
+      });
+      tees.forEach(({p, sg})=>{ const d = cur(sg), n = {x:-d.y, y:d.x}; const c = {}; add(c, p, n.x, n.y); add(c, sg.a, -n.x, -n.y); row(c, 0, 1e5); });
+      nodes.forEach((q,i)=>{ row({[2*i]:1, [S]:-(q.x-cx)}, cx, 1e-4); row({[2*i+1]:1, [S]:-(q.y-cy)}, cy, 1e-4); });
+      const M = A.map((r,i)=>{ const z = Array.from(r); z.push(bv[i]); return z; });
+      let ok = true;
+      for(let c=0;c<V && ok;c++){ let piv = c; for(let r=c+1;r<V;r++) if(Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+        if(Math.abs(M[piv][c]) < 1e-12){ ok = false; break; } [M[c], M[piv]] = [M[piv], M[c]];
+        for(let r=c+1;r<V;r++){ const f = M[r][c]/M[c][c]; if(!f) continue; for(let k=c;k<=V;k++) M[r][k] -= f*M[c][k]; } }
+      if(!ok) break;
+      const z = new Float64Array(V); for(let r=V-1;r>=0;r--){ let t = M[r][V]; for(let k=r+1;k<V;k++) t -= M[r][k]*z[k]; z[r] = t/M[r][r]; }
+      if(!Array.from(z).every(isFinite)) break;
+      const moved = Math.max(...Array.from(z).map((v,i)=>Math.abs(v - y[i])));
+      y = z; if(moved < 0.005) break;
+    }
+    const realLen = (v, sg)=> Math.hypot(v[2*sg.b]-v[2*sg.a], v[2*sg.b+1]-v[2*sg.a+1]);
+    const offFlex = measured.filter(i=>Math.abs(realLen(y, segs[i]) - segs[i].m) >= 0.1).length;
+    const flips = segs.some(sg=>((y[2*sg.b]-y[2*sg.a])*sg.d.x + (y[2*sg.b+1]-y[2*sg.a+1])*sg.d.y) < 0.5);
+    const turn = Math.max(...segs.map(sg=>{ const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1]; const c = Math.max(-1, Math.min(1, (dx*sg.d.x + dy*sg.d.y)/(Math.hypot(dx,dy)||1))); return Math.acos(c)*180/Math.PI; }));
+    if(!flips && offFlex < best.off && turn <= 6){ nudged = turn; x = y; }   // more than 6° means a number is probably wrong — don't twist the drawing, leave it red
+  }
   const P = nodes.map((_,i)=>({x:x[2*i], y:x[2*i+1]}));
   if(segs.some(sg=>((P[sg.b].x-P[sg.a].x)*sg.d.x + (P[sg.b].y-P[sg.a].y)*sg.d.y) < 0.5)) return null;   // would flip a wall: leave it
   // things inside a room move with it
@@ -3124,7 +3159,7 @@ function sk2FixAll(plan){
   shapes.forEach(sh=>{ sh.pts = sh.pts.map((_,i)=>{ const q = P[at.get(sh.id+':'+i)]; return {x:q.x, y:q.y}; }); });
   const roomOf = (p)=>{ let best = null, ba = Infinity; shapes.forEach(sh=>{ if(!sh.closed) return; const o = oldOf.get(sh.id); if(sk2PointInPoly(p, o)){ const ar = Math.abs(o.reduce((t,q,i)=>{ const r2 = o[(i+1)%o.length]; return t + q.x*r2.y - r2.x*q.y; }, 0)); if(ar < ba){ ba = ar; best = sh; } } }); return best; };
   plan.boxes.concat(plan.notes, plan.columns.filter(c=>!c.sid)).forEach(it=>{ const sh = roomOf(it); if(!sh) return; const o = avg(oldOf.get(sh.id)), n = avg(sh.pts), k = x[S] > 0.05 ? x[S] : 1; it.x = n.x + (it.x - o.x)*k; it.y = n.y + (it.y - o.y)*k; });
-  return { red: sk2RedCount(plan), scale: x[S] };
+  return { red: sk2RedCount(plan), scale: x[S], nudged };
 }
 function sk2StraightenUp(plan, opts){
   const keepAngles = !!(opts && opts.keepAngles);   // 🔧 Fix sizes: every wall keeps the angle it was drawn at — only the lengths change
@@ -5189,8 +5224,8 @@ function sk2TopAction(a){
     let r = sk2FixAll(S.plan);
     if(!r){ r = sk2StraightenUp(S.plan, {keepAngles:true}); }      // couldn't do the whole plan in one go: room by room instead
     S.dirty = true; try{ sk2Fit(); }catch(e){} sk2Draw(); sk2Panel();
-    sk2Toast(!r.red ? '🔧 Fixed — every wall now matches your measurements, and no angle was changed ✓. ↶ Undo puts it back.'
-      : '🔧 Fixed what could be fixed'+(before > r.red ? ' ('+(before - r.red)+' now match)' : '')+'. '+r.red+' measurement'+(r.red===1?'':'s')+' still can\'t fit without changing an angle — re-check '+(r.red===1?'that wall':'those walls')+', or tap 📐 Straighten up to also square the corners. Your numbers were not changed. ↶ Undo puts it back.');
+    sk2Toast(!r.red ? (r.nudged > 0.05 ? '🔧 Fixed — every wall now matches your measurements ✓. Some corners were nudged up to '+(Math.round(r.nudged*10)/10)+'° so your numbers fit. ↶ Undo puts it back.' : '🔧 Fixed — every wall now matches your measurements, and no angle was changed ✓. ↶ Undo puts it back.')
+      : '🔧 Fixed what could be fixed'+(before > r.red ? ' ('+(before - r.red)+' now match)' : '')+'. '+r.red+' measurement'+(r.red===1?'':'s')+' in red can\'t be true together with the others (like 7\' on one side and 8\' straight across from it) — re-measure '+(r.red===1?'that wall':'those walls')+'. Your numbers were not changed. ↶ Undo puts it back.');
     return;
   }
   if(a==='straighten'){
@@ -12950,7 +12985,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.25-b</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.25-c</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
