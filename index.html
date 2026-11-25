@@ -349,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.25-d';
+const APP_VERSION = 'v2026.11.25-e';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -4930,6 +4930,16 @@ function sk2ApplyLength(L){
         v.s = v.s/f; v.ox = sx - o.x*v.s; v.oy = sy - o.y*v.s;
       }
     }
+    if(plan.shapes.length > 1){
+      sh.meas = sh.meas || {}; sh.meas[sel.seg] = L; S.dirty = true;
+      const r = sk2FixAll(plan); if(r && Math.abs((r.scale||1) - 1) > 0.1){ try{ sk2Fit(); }catch(e){} }
+      let msg = '✓ '+sk2Fmt(L)+(r ? ' — the whole floor plan was resized to fit' : ' — saved');
+      if(r && r.red) msg += ' · '+r.red+' measurement'+(r.red===1?'':'s')+' in red don\'t add up with the others — re-check '+(r.red===1?'it':'them');
+      const n2 = sk2SegCount(sh); let nx = null;
+      for(let k=1;k<=n2;k++){ const j = (sel.seg + k) % n2; if(!sh.closed && j===0 && sel.seg===n2-1) break; if(sh.meas[j]==null){ nx = j; break; } }
+      if(nx!=null){ S.sel = {kind:'wall', sid:sh.id, seg:nx}; S.selByUser = false; } else { msg += ' — all walls of this room measured'; S.selByUser = false; }
+      sk2Toast(msg); sk2Draw(); sk2Panel(); sk2FocusTape(); return;
+    }
     const oldPts = sh.pts.map(q=>({...q}));
     // a new room attached to others grows from the corner it shares with them
     const shared = sh.pts.map((q,k)=> plan.shapes.some(o=>o!==sh && o.pts.some(z=>sk2V.dist(z,q)<0.75)) ? k : -1).filter(k=>k>=0);
@@ -4951,6 +4961,9 @@ function sk2ApplyLength(L){
   if(sel.kind==='dim'){
     const d = (plan.dims||[]).find(x=>x.id===sel.id); const g = d && sk2DimGeom(plan, d); if(!g) return;
     sk2Push(); d.val = L; S.dirty = true;
+    { const before = sk2RedCount(plan); const r = sk2FixAll(plan);
+      if(r){ if(Math.abs((r.scale||1) - 1) > 0.1){ try{ sk2Fit(); }catch(e){} } sk2Draw(); sk2Panel(); sk2Toast('✓ '+sk2Fmt(L)+' — the whole floor plan was resized to fit'+(r.red ? ' · '+r.red+' measurement'+(r.red===1?'':'s')+' in red don\'t add up with the others — re-check '+(r.red===1?'it':'them') : ' ✓')); return; }
+      sk2Toast('✓ Saved '+sk2Fmt(L)+' — nothing was moved'+(before ? '. Tap 🔧 Fix sizes' : '')); sk2Draw(); sk2Panel(); return; }
     if(!g.parallel){ sk2Toast('✓ Saved '+sk2Fmt(L)+' (the walls aren\'t parallel, so nothing was moved)'); sk2Draw(); sk2Panel(); return; }
     const shB = plan.shapes.find(x=>x.id===d.b.sid), old = shB.pts.map(q=>({...q}));
     const n = sk2V.norm(sk2V.sub(g.B, g.A)), mv = sk2V.mul(n, L - g.cur);
@@ -12964,7 +12977,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.25-d</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.25-e</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
