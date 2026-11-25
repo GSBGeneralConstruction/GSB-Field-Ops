@@ -349,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.25-a';
+const APP_VERSION = 'v2026.11.25-b';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3057,6 +3057,75 @@ function sk2SetLength(plan, sh, i, L, opts){
    Your measurements are never changed. Walls you locked (🔒) keep their angle. Walls not measured yet take up the difference.
    Rooms that were touching stay attached; things inside a room move with it. */
 function sk2RedCount(plan){ let n = 0; plan.shapes.forEach(sh=>{ for(let i=0;i<sk2SegCount(sh);i++) if(sk2MeasureStatus(sh,i)==='off') n++; }); return n; }
+/* 🔧 Fix sizes — the WHOLE floor plan at once: measured walls become exactly your numbers, every wall keeps its angle,
+   walls not measured yet grow/shrink in proportion (one scale for the plan), rooms that share walls or corners stay joined,
+   and a corner sitting on another wall (a T) stays on that wall. Your measurements are never changed. */
+function sk2FixAll(plan){
+  const shapes = plan.shapes.filter(sh=>sh.pts.length >= 2);
+  if(!shapes.length) return null;
+  const TOL = 1.0, nodes = [], at = new Map();
+  shapes.forEach(sh=>sh.pts.forEach((p,i)=>{ let k = nodes.findIndex(q=>Math.hypot(q.x-p.x, q.y-p.y) < TOL); if(k < 0){ k = nodes.length; nodes.push({x:p.x, y:p.y}); } at.set(sh.id+':'+i, k); }));
+  const segs = [], seen = new Map();
+  shapes.forEach(sh=>{ for(let k=0;k<sk2SegCount(sh);k++){
+    const a = at.get(sh.id+':'+k), b = at.get(sh.id+':'+((k+1)%sh.pts.length)); if(a===b) continue;
+    const A = nodes[a], B = nodes[b], L0 = Math.hypot(B.x-A.x, B.y-A.y); if(L0 < 0.5) continue;
+    const d = {x:(B.x-A.x)/L0, y:(B.y-A.y)/L0}, m = sh.meas && sh.meas[k]!=null ? +sh.meas[k] : null;
+    const key = Math.min(a,b)+'-'+Math.max(a,b);
+    if(seen.has(key)){ const o = segs[seen.get(key)]; if(m!=null && o.m==null) o.m = m; continue; }   // the same wall in two rooms
+    seen.set(key, segs.length); segs.push({a, b, d, n:{x:-d.y, y:d.x}, L0, m});
+  } });
+  // corners that sit in the middle of another wall (T's)
+  const tees = [];
+  nodes.forEach((P, i)=>segs.forEach(sg=>{ if(sg.a===i || sg.b===i) return; const r = sk2PointSegDist(P, nodes[sg.a], nodes[sg.b]); if(r.d < TOL && r.t > 0.01 && r.t < 0.99) tees.push({p:i, sg}); }));
+  const N = nodes.length, V = 2*N + 1, S = 2*N;               // unknowns: every corner (x,y) + one scale for the walls not measured yet
+  const cx = nodes.reduce((t,q)=>t+q.x,0)/N, cy = nodes.reduce((t,q)=>t+q.y,0)/N;
+  const W_ANGLE = 1e5, W_MEAS = 1e3, W_FREE = 1, W_HOLD = 1e-4;
+  const solve = (skip)=>{
+    const A = Array.from({length:V}, ()=>new Float64Array(V)), bv = new Float64Array(V);
+    const row = (c, t, w)=>{ const ks = Object.keys(c).map(Number); ks.forEach(i=>{ bv[i] += w*c[i]*t; ks.forEach(j=>{ A[i][j] += w*c[i]*c[j]; }); }); };
+    const add = (c, i, kx, ky)=>{ c[2*i] = (c[2*i]||0) + kx; c[2*i+1] = (c[2*i+1]||0) + ky; };
+    segs.forEach((sg, si)=>{
+      let c = {}; add(c, sg.b, sg.n.x, sg.n.y); add(c, sg.a, -sg.n.x, -sg.n.y); row(c, 0, W_ANGLE);                       // keeps its angle
+      c = {}; add(c, sg.b, sg.d.x, sg.d.y); add(c, sg.a, -sg.d.x, -sg.d.y);
+      if(sg.m!=null && !skip.has(si)) row(c, sg.m, W_MEAS); else { c[S] = -sg.L0; row(c, 0, W_FREE); }                   // your number / in proportion
+    });
+    tees.forEach(({p, sg})=>{ const c = {}; add(c, p, sg.n.x, sg.n.y); add(c, sg.a, -sg.n.x, -sg.n.y); row(c, 0, W_ANGLE); });
+    nodes.forEach((q,i)=>{ row({[2*i]:1, [S]:-(q.x-cx)}, cx, W_HOLD); row({[2*i+1]:1, [S]:-(q.y-cy)}, cy, W_HOLD); });  // stays where it is on the page
+    const M = A.map((r,i)=>{ const x = Array.from(r); x.push(bv[i]); return x; });
+    for(let c=0;c<V;c++){
+      let piv = c; for(let r=c+1;r<V;r++) if(Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+      if(Math.abs(M[piv][c]) < 1e-12) return null;
+      [M[c], M[piv]] = [M[piv], M[c]];
+      for(let r=c+1;r<V;r++){ const f = M[r][c]/M[c][c]; if(!f) continue; for(let k=c;k<=V;k++) M[r][k] -= f*M[c][k]; }
+    }
+    const x = new Float64Array(V);
+    for(let r=V-1;r>=0;r--){ let t = M[r][V]; for(let k=r+1;k<V;k++) t -= M[r][k]*x[k]; x[r] = t/M[r][r]; }
+    return Array.from(x).every(isFinite) ? x : null;
+  };
+  const lenOf = (x, sg)=> (x[2*sg.b]-x[2*sg.a])*sg.d.x + (x[2*sg.b+1]-x[2*sg.a+1])*sg.d.y;
+  // when some measurements can't all be true together, fit as many as possible exactly and leave only the odd one(s) red
+  const skip = new Set(); let x = null, best = null;
+  const measured = segs.map((sg,i)=>sg.m!=null ? i : -1).filter(i=>i>=0);
+  for(let round=0; round<=measured.length; round++){
+    x = solve(skip); if(!x) break;
+    const off = measured.map(i=>({i, e:Math.abs(lenOf(x, segs[i]) - segs[i].m)})).filter(o=>o.e >= 0.1);
+    if(!best || off.length < best.off){ best = {x, off:off.length}; }
+    if(!off.length) break;
+    const worst = off.filter(o=>!skip.has(o.i)).sort((p,q)=>q.e-p.e)[0]; if(!worst) break;
+    skip.add(worst.i);
+  }
+  if(!best) return null;
+  x = best.x;
+  const P = nodes.map((_,i)=>({x:x[2*i], y:x[2*i+1]}));
+  if(segs.some(sg=>((P[sg.b].x-P[sg.a].x)*sg.d.x + (P[sg.b].y-P[sg.a].y)*sg.d.y) < 0.5)) return null;   // would flip a wall: leave it
+  // things inside a room move with it
+  const oldOf = new Map(shapes.map(sh=>[sh.id, sh.pts.map(p=>({x:p.x, y:p.y}))]));
+  const avg = (L)=> L.reduce((acc,p)=>({x:acc.x+p.x/L.length, y:acc.y+p.y/L.length}), {x:0,y:0});
+  shapes.forEach(sh=>{ sh.pts = sh.pts.map((_,i)=>{ const q = P[at.get(sh.id+':'+i)]; return {x:q.x, y:q.y}; }); });
+  const roomOf = (p)=>{ let best = null, ba = Infinity; shapes.forEach(sh=>{ if(!sh.closed) return; const o = oldOf.get(sh.id); if(sk2PointInPoly(p, o)){ const ar = Math.abs(o.reduce((t,q,i)=>{ const r2 = o[(i+1)%o.length]; return t + q.x*r2.y - r2.x*q.y; }, 0)); if(ar < ba){ ba = ar; best = sh; } } }); return best; };
+  plan.boxes.concat(plan.notes, plan.columns.filter(c=>!c.sid)).forEach(it=>{ const sh = roomOf(it); if(!sh) return; const o = avg(oldOf.get(sh.id)), n = avg(sh.pts), k = x[S] > 0.05 ? x[S] : 1; it.x = n.x + (it.x - o.x)*k; it.y = n.y + (it.y - o.y)*k; });
+  return { red: sk2RedCount(plan), scale: x[S] };
+}
 function sk2StraightenUp(plan, opts){
   const keepAngles = !!(opts && opts.keepAngles);   // 🔧 Fix sizes: every wall keeps the angle it was drawn at — only the lengths change
   const oldOf = new Map(plan.shapes.map(sh=>[sh.id, sh.pts.map(p=>({x:p.x, y:p.y}))]));
@@ -5117,7 +5186,9 @@ function sk2TopAction(a){
     if(!S.plan.shapes.length){ sk2Toast('Draw some walls first'); return; }
     const before = sk2RedCount(S.plan);
     sk2Push();
-    const r = sk2StraightenUp(S.plan, {keepAngles:true}); S.dirty = true; sk2Draw(); sk2Panel();
+    let r = sk2FixAll(S.plan);
+    if(!r){ r = sk2StraightenUp(S.plan, {keepAngles:true}); }      // couldn't do the whole plan in one go: room by room instead
+    S.dirty = true; try{ sk2Fit(); }catch(e){} sk2Draw(); sk2Panel();
     sk2Toast(!r.red ? '🔧 Fixed — every wall now matches your measurements, and no angle was changed ✓. ↶ Undo puts it back.'
       : '🔧 Fixed what could be fixed'+(before > r.red ? ' ('+(before - r.red)+' now match)' : '')+'. '+r.red+' measurement'+(r.red===1?'':'s')+' still can\'t fit without changing an angle — re-check '+(r.red===1?'that wall':'those walls')+', or tap 📐 Straighten up to also square the corners. Your numbers were not changed. ↶ Undo puts it back.');
     return;
@@ -12879,7 +12950,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.25-a</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.25-b</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
