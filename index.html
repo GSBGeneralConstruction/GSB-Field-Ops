@@ -349,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.25-c';
+const APP_VERSION = 'v2026.11.25-d';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3056,7 +3056,7 @@ function sk2SetLength(plan, sh, i, L, opts){
 /* 📐 STRAIGHTEN UP — squares up hand-drawn walls and fits the plan to the measurements.
    Your measurements are never changed. Walls you locked (🔒) keep their angle. Walls not measured yet take up the difference.
    Rooms that were touching stay attached; things inside a room move with it. */
-function sk2RedCount(plan){ let n = 0; plan.shapes.forEach(sh=>{ for(let i=0;i<sk2SegCount(sh);i++) if(sk2MeasureStatus(sh,i)==='off') n++; }); return n; }
+function sk2RedCount(plan){ let n = 0; plan.shapes.forEach(sh=>{ for(let i=0;i<sk2SegCount(sh);i++) if(sk2MeasureStatus(sh,i)==='off') n++; }); (plan.dims||[]).forEach(d=>{ if(d.val==null) return; const g = sk2DimGeom(plan, d); if(g && Math.abs(g.cur - d.val) >= 0.15) n++; }); return n; }
 /* 🔧 Fix sizes — the WHOLE floor plan at once: measured walls become exactly your numbers, every wall keeps its angle,
    walls not measured yet grow/shrink in proportion (one scale for the plan), rooms that share walls or corners stay joined,
    and a corner sitting on another wall (a T) stays on that wall. Your measurements are never changed. */
@@ -3065,101 +3065,80 @@ function sk2FixAll(plan){
   if(!shapes.length) return null;
   const TOL = 1.0, nodes = [], at = new Map();
   shapes.forEach(sh=>sh.pts.forEach((p,i)=>{ let k = nodes.findIndex(q=>Math.hypot(q.x-p.x, q.y-p.y) < TOL); if(k < 0){ k = nodes.length; nodes.push({x:p.x, y:p.y}); } at.set(sh.id+':'+i, k); }));
-  const segs = [], seen = new Map();
+  const segs = [], seen = new Map(), segOf = new Map();     // segOf: "shape:wall" → the wall in the solve (and whether it runs the other way)
   shapes.forEach(sh=>{ for(let k=0;k<sk2SegCount(sh);k++){
     const a = at.get(sh.id+':'+k), b = at.get(sh.id+':'+((k+1)%sh.pts.length)); if(a===b) continue;
     const A = nodes[a], B = nodes[b], L0 = Math.hypot(B.x-A.x, B.y-A.y); if(L0 < 0.5) continue;
-    const d = {x:(B.x-A.x)/L0, y:(B.y-A.y)/L0}, m = sh.meas && sh.meas[k]!=null ? +sh.meas[k] : null;
-    const key = Math.min(a,b)+'-'+Math.max(a,b);
-    if(seen.has(key)){ const o = segs[seen.get(key)]; if(m!=null && o.m==null) o.m = m; continue; }   // the same wall in two rooms
-    seen.set(key, segs.length); segs.push({a, b, d, n:{x:-d.y, y:d.x}, L0, m});
+    const m = sh.meas && sh.meas[k]!=null ? +sh.meas[k] : null, key = Math.min(a,b)+'-'+Math.max(a,b);
+    if(seen.has(key)){ const o = segs[seen.get(key)]; if(m!=null && o.m==null) o.m = m; segOf.set(sh.id+':'+k, {i:seen.get(key), rev: o.a!==a}); continue; }
+    seen.set(key, segs.length); segOf.set(sh.id+':'+k, {i:segs.length, rev:false});
+    const d = {x:(B.x-A.x)/L0, y:(B.y-A.y)/L0}; segs.push({a, b, d, n:{x:-d.y, y:d.x}, L0, m});
   } });
-  // corners that sit in the middle of another wall (T's)
   const tees = [];
   nodes.forEach((P, i)=>segs.forEach(sg=>{ if(sg.a===i || sg.b===i) return; const r = sk2PointSegDist(P, nodes[sg.a], nodes[sg.b]); if(r.d < TOL && r.t > 0.01 && r.t < 0.99) tees.push({p:i, sg}); }));
-  const N = nodes.length, V = 2*N + 1, S = 2*N;               // unknowns: every corner (x,y) + one scale for the walls not measured yet
+  // measuring lines: wall-to-wall distances you measured
+  const dimC = [];
+  (plan.dims||[]).forEach(d=>{ if(d.val==null) return; const A = segOf.get(d.a.sid+':'+d.a.seg), B = segOf.get(d.b.sid+':'+d.b.seg); if(!A || !B || A.i===B.i) return;
+    const sa = segs[A.i], sb = segs[B.i], t = A.rev ? 1 - d.a.t : d.a.t;
+    const pa = {x:nodes[sa.a].x + (nodes[sa.b].x-nodes[sa.a].x)*t, y:nodes[sa.a].y + (nodes[sa.b].y-nodes[sa.a].y)*t};
+    const side = Math.sign((pa.x-nodes[sb.a].x)*sb.n.x + (pa.y-nodes[sb.a].y)*sb.n.y) || 1;
+    dimC.push({sa, sb, t, val:+d.val, side}); });
+  const N = nodes.length, V = 2*N + 1, S = 2*N;
   const cx = nodes.reduce((t,q)=>t+q.x,0)/N, cy = nodes.reduce((t,q)=>t+q.y,0)/N;
-  const W_ANGLE = 1e5, W_MEAS = 1e3, W_FREE = 1, W_HOLD = 1e-4;
-  const solve = (skip)=>{
+  const linsolve = (build)=>{
     const A = Array.from({length:V}, ()=>new Float64Array(V)), bv = new Float64Array(V);
     const row = (c, t, w)=>{ const ks = Object.keys(c).map(Number); ks.forEach(i=>{ bv[i] += w*c[i]*t; ks.forEach(j=>{ A[i][j] += w*c[i]*c[j]; }); }); };
-    const add = (c, i, kx, ky)=>{ c[2*i] = (c[2*i]||0) + kx; c[2*i+1] = (c[2*i+1]||0) + ky; };
-    segs.forEach((sg, si)=>{
-      let c = {}; add(c, sg.b, sg.n.x, sg.n.y); add(c, sg.a, -sg.n.x, -sg.n.y); row(c, 0, W_ANGLE);                       // keeps its angle
-      c = {}; add(c, sg.b, sg.d.x, sg.d.y); add(c, sg.a, -sg.d.x, -sg.d.y);
-      if(sg.m!=null && !skip.has(si)) row(c, sg.m, W_MEAS); else { c[S] = -sg.L0; row(c, 0, W_FREE); }                   // your number / in proportion
-    });
-    tees.forEach(({p, sg})=>{ const c = {}; add(c, p, sg.n.x, sg.n.y); add(c, sg.a, -sg.n.x, -sg.n.y); row(c, 0, W_ANGLE); });
-    nodes.forEach((q,i)=>{ row({[2*i]:1, [S]:-(q.x-cx)}, cx, W_HOLD); row({[2*i+1]:1, [S]:-(q.y-cy)}, cy, W_HOLD); });  // stays where it is on the page
-    const M = A.map((r,i)=>{ const x = Array.from(r); x.push(bv[i]); return x; });
-    for(let c=0;c<V;c++){
-      let piv = c; for(let r=c+1;r<V;r++) if(Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
-      if(Math.abs(M[piv][c]) < 1e-12) return null;
-      [M[c], M[piv]] = [M[piv], M[c]];
-      for(let r=c+1;r<V;r++){ const f = M[r][c]/M[c][c]; if(!f) continue; for(let k=c;k<=V;k++) M[r][k] -= f*M[c][k]; }
-    }
-    const x = new Float64Array(V);
-    for(let r=V-1;r>=0;r--){ let t = M[r][V]; for(let k=r+1;k<V;k++) t -= M[r][k]*x[k]; x[r] = t/M[r][r]; }
-    return Array.from(x).every(isFinite) ? x : null;
+    build(row);
+    nodes.forEach((q,i)=>{ row({[2*i]:1, [S]:-(q.x-cx)}, cx, 1e-4); row({[2*i+1]:1, [S]:-(q.y-cy)}, cy, 1e-4); });   // stays where it is on the page
+    const M = A.map((r,i)=>{ const z = Array.from(r); z.push(bv[i]); return z; });
+    for(let c=0;c<V;c++){ let piv = c; for(let r=c+1;r<V;r++) if(Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+      if(Math.abs(M[piv][c]) < 1e-12) return null; [M[c], M[piv]] = [M[piv], M[c]];
+      for(let r=c+1;r<V;r++){ const f = M[r][c]/M[c][c]; if(!f) continue; for(let k=c;k<=V;k++) M[r][k] -= f*M[c][k]; } }
+    const z = new Float64Array(V); for(let r=V-1;r>=0;r--){ let t = M[r][V]; for(let k=r+1;k<V;k++) t -= M[r][k]*z[k]; z[r] = t/M[r][r]; }
+    return Array.from(z).every(isFinite) ? z : null;
   };
-  const lenOf = (x, sg)=> (x[2*sg.b]-x[2*sg.a])*sg.d.x + (x[2*sg.b+1]-x[2*sg.a+1])*sg.d.y;
-  // when some measurements can't all be true together, fit as many as possible exactly and leave only the odd one(s) red
-  const skip = new Set(); let x = null, best = null;
-  const measured = segs.map((sg,i)=>sg.m!=null ? i : -1).filter(i=>i>=0);
-  for(let round=0; round<=measured.length; round++){
-    x = solve(skip); if(!x) break;
-    const off = measured.map(i=>({i, e:Math.abs(lenOf(x, segs[i]) - segs[i].m)})).filter(o=>o.e >= 0.1);
-    if(!best || off.length < best.off){ best = {x, off:off.length}; }
+  const add = (c, i, kx, ky)=>{ c[2*i] = (c[2*i]||0) + kx; c[2*i+1] = (c[2*i+1]||0) + ky; };
+  const dirOf = (y, sg)=>{ if(!y) return sg.d; const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1], L = Math.hypot(dx,dy) || 1; return {x:dx/L, y:dy/L}; };
+  // one round of rows. cur = null → angles exactly as drawn; cur = positions → angles may move a little
+  const build = (cur, skip)=> (row)=>{
+    segs.forEach((sg, si)=>{
+      const d = dirOf(cur, sg);
+      let c = {}; add(c, sg.b, sg.n.x, sg.n.y); add(c, sg.a, -sg.n.x, -sg.n.y); row(c, 0, cur ? 3 : 1e5);                     // the drawn angle
+      c = {}; add(c, sg.b, d.x, d.y); add(c, sg.a, -d.x, -d.y);
+      if(sg.m!=null && !skip.has('w'+si)) row(c, sg.m, cur ? 1e4 : 1e3); else { c[S] = -sg.L0; row(c, 0, 1); }               // your number / in proportion
+    });
+    tees.forEach(({p, sg})=>{ const d = dirOf(cur, sg), n = {x:-d.y, y:d.x}; const c = {}; add(c, p, n.x, n.y); add(c, sg.a, -n.x, -n.y); row(c, 0, 1e5); });
+    dimC.forEach((dc, di)=>{ if(skip.has('d'+di)) return; const db = dirOf(cur, dc.sb), n = {x:-db.y, y:db.x};
+      const c = {}; add(c, dc.sa.a, (1-dc.t)*n.x, (1-dc.t)*n.y); add(c, dc.sa.b, dc.t*n.x, dc.t*n.y); add(c, dc.sb.a, -n.x, -n.y); row(c, dc.side*dc.val, cur ? 1e4 : 1e3); });
+  };
+  const wallLen = (y, sg)=> Math.hypot(y[2*sg.b]-y[2*sg.a], y[2*sg.b+1]-y[2*sg.a+1]);
+  const dimLen = (y, dc)=>{ const db = dirOf(y, dc.sb), n = {x:-db.y, y:db.x}; const px = y[2*dc.sa.a]*(1-dc.t) + y[2*dc.sa.b]*dc.t, py = y[2*dc.sa.a+1]*(1-dc.t) + y[2*dc.sa.b+1]*dc.t; return Math.abs((px - y[2*dc.sb.a])*n.x + (py - y[2*dc.sb.a+1])*n.y); };
+  const offList = (y)=> segs.map((sg,i)=>sg.m!=null && Math.abs(wallLen(y, sg) - sg.m) >= 0.1 ? {k:'w'+i, e:Math.abs(wallLen(y, sg) - sg.m)} : null)
+    .concat(dimC.map((dc,i)=>Math.abs(dimLen(y, dc) - dc.val) >= 0.1 ? {k:'d'+i, e:Math.abs(dimLen(y, dc) - dc.val)} : null)).filter(Boolean);
+  const flips = (y)=> segs.some(sg=>((y[2*sg.b]-y[2*sg.a])*sg.d.x + (y[2*sg.b+1]-y[2*sg.a+1])*sg.d.y) < 0.5);
+  const turnOf = (y)=> Math.max(0, ...segs.map(sg=>{ const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1]; const c = Math.max(-1, Math.min(1, (dx*sg.d.x + dy*sg.d.y)/(Math.hypot(dx,dy)||1))); return Math.acos(c)*180/Math.PI; }));
+  const flexFrom = (y0, skip)=>{ let y = y0; for(let it=0; it<40; it++){ const z = linsolve(build(y, skip)); if(!z) return null; const mv = Math.max(...Array.from(z).map((v,i)=>Math.abs(v-y[i]))); y = z; if(mv < 0.005) break; } return y; };
+  // 1) angles exactly as drawn   2) if needed, nudge angles a little (max 6°)   3) still impossible → keep as many numbers as possible, leave the odd one red
+  let best = null; const skip = new Set();
+  const total = segs.filter(sg=>sg.m!=null).length + dimC.length;
+  for(let round=0; round<=total; round++){
+    const x0 = linsolve(build(null, skip)); if(!x0) break;
+    let y = x0, off = offList(x0), nudged = 0;
+    if(off.length){ const yf = flexFrom(x0, skip); if(yf && !flips(yf)){ const offF = offList(yf), tr = turnOf(yf); if(offF.length < off.length && tr <= 6){ y = yf; off = offF; nudged = tr; } } }
+    if(!flips(y) && (!best || off.length < best.off.length)) best = { y, off, nudged };
     if(!off.length) break;
-    const worst = off.filter(o=>!skip.has(o.i)).sort((p,q)=>q.e-p.e)[0]; if(!worst) break;
-    skip.add(worst.i);
+    const worst = off.filter(o=>!skip.has(o.k)).sort((p,q)=>q.e-p.e)[0]; if(!worst) break; skip.add(worst.k);
   }
   if(!best) return null;
-  x = best.x;
-  let nudged = 0;
-  if(best.off){
-    // some numbers can't fit with the angles exactly as drawn (hand-drawn corners are a few degrees off):
-    // nudge the angles — as little as possible — until every measured wall fits. Corners on a wall (T's) stay on it.
-    let y = Float64Array.from(x);
-    for(let it=0; it<40; it++){
-      const A = Array.from({length:V}, ()=>new Float64Array(V)), bv = new Float64Array(V);
-      const row = (c, t, w)=>{ const ks = Object.keys(c).map(Number); ks.forEach(i=>{ bv[i] += w*c[i]*t; ks.forEach(j=>{ A[i][j] += w*c[i]*c[j]; }); }); };
-      const add = (c, i, kx, ky)=>{ c[2*i] = (c[2*i]||0) + kx; c[2*i+1] = (c[2*i+1]||0) + ky; };
-      const cur = (sg)=>{ const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1], L = Math.hypot(dx,dy) || 1; return {x:dx/L, y:dy/L}; };
-      segs.forEach(sg=>{
-        const d = cur(sg);
-        let c = {}; add(c, sg.b, d.x, d.y); add(c, sg.a, -d.x, -d.y);
-        if(sg.m!=null) row(c, sg.m, 1e4); else { c[S] = -sg.L0; row(c, 0, 1); }
-        c = {}; add(c, sg.b, sg.n.x, sg.n.y); add(c, sg.a, -sg.n.x, -sg.n.y); row(c, 0, 3);                     // stay close to the drawn angle
-      });
-      tees.forEach(({p, sg})=>{ const d = cur(sg), n = {x:-d.y, y:d.x}; const c = {}; add(c, p, n.x, n.y); add(c, sg.a, -n.x, -n.y); row(c, 0, 1e5); });
-      nodes.forEach((q,i)=>{ row({[2*i]:1, [S]:-(q.x-cx)}, cx, 1e-4); row({[2*i+1]:1, [S]:-(q.y-cy)}, cy, 1e-4); });
-      const M = A.map((r,i)=>{ const z = Array.from(r); z.push(bv[i]); return z; });
-      let ok = true;
-      for(let c=0;c<V && ok;c++){ let piv = c; for(let r=c+1;r<V;r++) if(Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
-        if(Math.abs(M[piv][c]) < 1e-12){ ok = false; break; } [M[c], M[piv]] = [M[piv], M[c]];
-        for(let r=c+1;r<V;r++){ const f = M[r][c]/M[c][c]; if(!f) continue; for(let k=c;k<=V;k++) M[r][k] -= f*M[c][k]; } }
-      if(!ok) break;
-      const z = new Float64Array(V); for(let r=V-1;r>=0;r--){ let t = M[r][V]; for(let k=r+1;k<V;k++) t -= M[r][k]*z[k]; z[r] = t/M[r][r]; }
-      if(!Array.from(z).every(isFinite)) break;
-      const moved = Math.max(...Array.from(z).map((v,i)=>Math.abs(v - y[i])));
-      y = z; if(moved < 0.005) break;
-    }
-    const realLen = (v, sg)=> Math.hypot(v[2*sg.b]-v[2*sg.a], v[2*sg.b+1]-v[2*sg.a+1]);
-    const offFlex = measured.filter(i=>Math.abs(realLen(y, segs[i]) - segs[i].m) >= 0.1).length;
-    const flips = segs.some(sg=>((y[2*sg.b]-y[2*sg.a])*sg.d.x + (y[2*sg.b+1]-y[2*sg.a+1])*sg.d.y) < 0.5);
-    const turn = Math.max(...segs.map(sg=>{ const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1]; const c = Math.max(-1, Math.min(1, (dx*sg.d.x + dy*sg.d.y)/(Math.hypot(dx,dy)||1))); return Math.acos(c)*180/Math.PI; }));
-    if(!flips && offFlex < best.off && turn <= 6){ nudged = turn; x = y; }   // more than 6° means a number is probably wrong — don't twist the drawing, leave it red
-  }
+  const x = best.y;
   const P = nodes.map((_,i)=>({x:x[2*i], y:x[2*i+1]}));
-  if(segs.some(sg=>((P[sg.b].x-P[sg.a].x)*sg.d.x + (P[sg.b].y-P[sg.a].y)*sg.d.y) < 0.5)) return null;   // would flip a wall: leave it
-  // things inside a room move with it
   const oldOf = new Map(shapes.map(sh=>[sh.id, sh.pts.map(p=>({x:p.x, y:p.y}))]));
   const avg = (L)=> L.reduce((acc,p)=>({x:acc.x+p.x/L.length, y:acc.y+p.y/L.length}), {x:0,y:0});
   shapes.forEach(sh=>{ sh.pts = sh.pts.map((_,i)=>{ const q = P[at.get(sh.id+':'+i)]; return {x:q.x, y:q.y}; }); });
-  const roomOf = (p)=>{ let best = null, ba = Infinity; shapes.forEach(sh=>{ if(!sh.closed) return; const o = oldOf.get(sh.id); if(sk2PointInPoly(p, o)){ const ar = Math.abs(o.reduce((t,q,i)=>{ const r2 = o[(i+1)%o.length]; return t + q.x*r2.y - r2.x*q.y; }, 0)); if(ar < ba){ ba = ar; best = sh; } } }); return best; };
-  plan.boxes.concat(plan.notes, plan.columns.filter(c=>!c.sid)).forEach(it=>{ const sh = roomOf(it); if(!sh) return; const o = avg(oldOf.get(sh.id)), n = avg(sh.pts), k = x[S] > 0.05 ? x[S] : 1; it.x = n.x + (it.x - o.x)*k; it.y = n.y + (it.y - o.y)*k; });
-  return { red: sk2RedCount(plan), scale: x[S], nudged };
+  const roomOf = (p)=>{ let bst = null, ba = Infinity; shapes.forEach(sh=>{ if(!sh.closed) return; const o = oldOf.get(sh.id); if(sk2PointInPoly(p, o)){ const ar = Math.abs(o.reduce((t,q,i)=>{ const r2 = o[(i+1)%o.length]; return t + q.x*r2.y - r2.x*q.y; }, 0)); if(ar < ba){ ba = ar; bst = sh; } } }); return bst; };
+  const k = x[S] > 0.05 ? x[S] : 1;
+  plan.boxes.concat(plan.notes, plan.columns.filter(c=>!c.sid)).forEach(it=>{ const sh = roomOf(it); if(!sh) return; const o = avg(oldOf.get(sh.id)), n = avg(sh.pts); it.x = n.x + (it.x - o.x)*k; it.y = n.y + (it.y - o.y)*k; });
+  return { red: sk2RedCount(plan), scale: x[S], nudged: best.nudged };
 }
 function sk2StraightenUp(plan, opts){
   const keepAngles = !!(opts && opts.keepAngles);   // 🔧 Fix sizes: every wall keeps the angle it was drawn at — only the lengths change
@@ -12985,7 +12964,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.25-c</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.25-d</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
