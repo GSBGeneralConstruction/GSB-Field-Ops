@@ -349,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.26-c';
+const APP_VERSION = 'v2026.11.26-d';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3103,23 +3103,23 @@ function sk2FixAll(plan){
   const build = (cur, skip)=> (row)=>{
     segs.forEach((sg, si)=>{
       const d = dirOf(cur, sg);
-      let c = {}; add(c, sg.b, sg.n.x, sg.n.y); add(c, sg.a, -sg.n.x, -sg.n.y); row(c, 0, cur ? 3 : 1e5);                     // the drawn angle
+      let c = {}; add(c, sg.b, sg.n.x, sg.n.y); add(c, sg.a, -sg.n.x, -sg.n.y); row(c, 0, cur ? 3 : 1e8);                     // the drawn angle
       c = {}; add(c, sg.b, d.x, d.y); add(c, sg.a, -d.x, -d.y);
-      if(sg.m!=null && !skip.has('w'+si)) row(c, sg.m, cur ? 1e4 : 1e3); else { c[S] = -sg.L0; row(c, 0, 1); }               // your number / in proportion
+      if(sg.m!=null && !skip.has('w'+si)) row(c, sg.m, cur ? 1e4 : 1e5); else { c[S] = -sg.L0; row(c, 0, 1); }               // your number / in proportion
     });
-    tees.forEach(({p, sg})=>{ const d = dirOf(cur, sg), n = {x:-d.y, y:d.x}; const c = {}; add(c, p, n.x, n.y); add(c, sg.a, -n.x, -n.y); row(c, 0, 1e5); });
+    tees.forEach(({p, sg})=>{ const d = dirOf(cur, sg), n = {x:-d.y, y:d.x}; const c = {}; add(c, p, n.x, n.y); add(c, sg.a, -n.x, -n.y); row(c, 0, cur ? 1e5 : 1e8); });
     dimC.forEach((dc, di)=>{ if(skip.has('d'+di)) return; const db = dirOf(cur, dc.sb), n = {x:-db.y, y:db.x};
-      const c = {}; add(c, dc.sa.a, (1-dc.t)*n.x, (1-dc.t)*n.y); add(c, dc.sa.b, dc.t*n.x, dc.t*n.y); add(c, dc.sb.a, -n.x, -n.y); row(c, dc.side*dc.val, cur ? 1e4 : 1e3); });
+      const c = {}; add(c, dc.sa.a, (1-dc.t)*n.x, (1-dc.t)*n.y); add(c, dc.sa.b, dc.t*n.x, dc.t*n.y); add(c, dc.sb.a, -n.x, -n.y); row(c, dc.side*dc.val, cur ? 1e4 : 1e5); });
   };
   const wallLen = (y, sg)=> Math.hypot(y[2*sg.b]-y[2*sg.a], y[2*sg.b+1]-y[2*sg.a+1]);
   const dimLen = (y, dc)=>{ const db = dirOf(y, dc.sb), n = {x:-db.y, y:db.x}; const px = y[2*dc.sa.a]*(1-dc.t) + y[2*dc.sa.b]*dc.t, py = y[2*dc.sa.a+1]*(1-dc.t) + y[2*dc.sa.b+1]*dc.t; return Math.abs((px - y[2*dc.sb.a])*n.x + (py - y[2*dc.sb.a+1])*n.y); };
-  const offList = (y)=> segs.map((sg,i)=>sg.m!=null && Math.abs(wallLen(y, sg) - sg.m) >= 0.1 ? {k:'w'+i, e:Math.abs(wallLen(y, sg) - sg.m)} : null)
-    .concat(dimC.map((dc,i)=>Math.abs(dimLen(y, dc) - dc.val) >= 0.1 ? {k:'d'+i, e:Math.abs(dimLen(y, dc) - dc.val)} : null)).filter(Boolean);
+  const offList = (y)=> segs.map((sg,i)=>sg.m!=null && Math.abs(wallLen(y, sg) - sg.m) >= 0.5 ? {k:'w'+i, e:Math.abs(wallLen(y, sg) - sg.m)} : null)
+    .concat(dimC.map((dc,i)=>Math.abs(dimLen(y, dc) - dc.val) >= 0.5 ? {k:'d'+i, e:Math.abs(dimLen(y, dc) - dc.val)} : null)).filter(o=>o && !skipNow.has(o.k));
   const flips = (y)=> segs.some(sg=> sg.L0 >= 6 && ((y[2*sg.b]-y[2*sg.a])*sg.d.x + (y[2*sg.b+1]-y[2*sg.a+1])*sg.d.y) < -0.5);
   const turnOf = (y)=> Math.max(0, ...segs.map(sg=>{ const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1]; const c = Math.max(-1, Math.min(1, (dx*sg.d.x + dy*sg.d.y)/(Math.hypot(dx,dy)||1))); return Math.acos(c)*180/Math.PI; }));
   const flexFrom = (y0, skip)=>{ let y = y0; for(let it=0; it<40; it++){ const z = linsolve(build(y, skip)); if(!z) return null; const mv = Math.max(...Array.from(z).map((v,i)=>Math.abs(v-y[i]))); y = z; if(mv < 0.005) break; } return y; };
   // 1) angles exactly as drawn   2) if needed, nudge angles a little (max 6°)   3) still impossible → keep as many numbers as possible, leave the odd one red
-  let best = null; const skip = new Set();
+  let best = null; const skip = new Set(); let skipNow = skip;
   const total = segs.filter(sg=>sg.m!=null).length + dimC.length;
   const typos = [];
   { const ratios = [];
@@ -13036,7 +13036,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-c</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-d</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
