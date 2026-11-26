@@ -349,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.25-e';
+const APP_VERSION = 'v2026.11.26-a';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3706,6 +3706,7 @@ function sk2BuildDom(){
     <button class="sk2-btn" data-sk2="copy" title="Copy what's selected">⧉ Copy</button>
     <button class="sk2-btn" data-sk2="paste" title="Paste what you copied">📋 Paste</button>
     <button class="sk2-btn" data-sk2="clearall" title="Clear everything off the sketch">🗑 Clear all</button>`}
+    ${S.readOnly ? '' : `<button class="sk2-btn ${sk2MeasureFirst()?'on':''}" data-sk2="measurefirst" title="ON: measurements are only written down, nothing moves until you tap Fix sizes. OFF: walls move as you measure.">📌 Measure first: ${sk2MeasureFirst()?'ON':'OFF'}</button>`}
     ${S.readOnly ? '' : `<button class="sk2-btn" data-sk2="fixsizes" title="Make the drawing match your measurements — every angle stays exactly as you drew it">🔧 Fix sizes</button>`}
     ${S.readOnly ? '' : `<button class="sk2-btn" data-sk2="straighten" title="Square up the walls and fit the plan to your measurements">📐 Straighten up</button>`}
     <button class="sk2-btn" data-sk2="fit">⤢ Fit</button>
@@ -4910,10 +4911,23 @@ function sk2TapeCommit(raw){
     const sh = S.plan.shapes.find(x=>x.id===sel.sid);
     if(sh && sh.meas && sh.meas[sel.seg]!=null && !S.selByUser){ sk2Toast('That wall is already measured ('+sk2Fmt(sh.meas[sel.seg])+') — tap it first if you want to change it. Nothing was changed.'); return; }
   }
+  if(sel.kind==='dim'){ const d = (S.plan.dims||[]).find(x=>x.id===sel.id); if(d && d.val!=null && !S.selByUser){ sk2Toast('That measuring line is already measured ('+sk2Fmt(d.val)+') — tap it first if you want to change it. Nothing was changed.'); return; } }
   sk2ApplyLength(L);
 }
+function sk2MeasureFirst(){ try{ return localStorage.getItem('gsb-sk2-measurefirst') !== '0'; }catch(e){ return true; } }
 function sk2ApplyLength(L){
   const S = STATE.sk2, sel = S.sel, plan = S.plan;
+  if(sk2MeasureFirst() && (sel.kind==='wall' || sel.kind==='dim')){
+    sk2Push(); S.dirty = true;
+    if(sel.kind==='dim'){ const d = (plan.dims||[]).find(x=>x.id===sel.id); if(!d) return; d.val = L; S.selByUser = false; sk2Toast('✓ '+sk2Fmt(L)+' saved — nothing moved. When you\'re done measuring, tap 🔧 Fix sizes.'); sk2Draw(); sk2Panel(); return; }
+    const sh = plan.shapes.find(x=>x.id===sel.sid); if(!sh) return;
+    sh.meas = sh.meas || {}; sh.meas[sel.seg] = L;
+    const n = sk2SegCount(sh); let nx = null;
+    for(let k=1;k<=n;k++){ const j = (sel.seg + k) % n; if(!sh.closed && j===0 && sel.seg===n-1) break; if(sh.meas[j]==null){ nx = j; break; } }
+    if(nx!=null){ S.sel = {kind:'wall', sid:sh.id, seg:nx}; } S.selByUser = false;   // a stray reading can never overwrite a wall you already measured
+    sk2Toast('✓ '+sk2Fmt(L)+' saved — nothing moved.'+(nx!=null ? ' Next wall is picked.' : ' All walls of this room measured.')+' When you\'re done, tap 🔧 Fix sizes.');
+    sk2Draw(); sk2Panel(); sk2FocusTape(); return;
+  }
   if(sel.kind==='wall'){
     const sh = plan.shapes.find(x=>x.id===sel.sid); if(!sh) return;
     sk2Push();
@@ -5047,7 +5061,7 @@ function sk2Panel(){
     const st = d.val==null ? 'est' : Math.abs(g.cur - d.val) < 0.15 ? 'ok' : 'off';
     h = `<h3>↔️ Measuring line</h3>
       <div class="sk2-big" style="color:${st==='ok'?'#1d1a14':st==='off'?'#B3261E':'#8C8576'}">${st==='est' ? sk2Fmt(g.cur,true) : sk2Fmt(d.val)}</div>
-      <div class="sub">${st==='est' ? 'Not measured yet' : st==='ok' ? '✓ Measured' : '⚠ Your measurement — the drawing doesn\'t match it (drawn '+sk2Fmt(g.cur)+'). Your number stays as you typed it'} · ${g.parallel ? 'measuring it moves the second wall you tapped to match' : 'these walls aren\'t parallel — the number is saved as a note'}</div>
+      <div class="sub">${st==='est' ? 'Not measured yet' : st==='ok' ? '✓ Measured' : '⚠ Your measurement — the drawing doesn\'t match it (drawn '+sk2Fmt(g.cur)+'). Your number stays as you typed it'} · ${g.parallel ? (sk2MeasureFirst() ? 'saved — tap 🔧 Fix sizes when you\'re done measuring to fit the drawing to it' : 'measuring it moves the second wall you tapped to match') : 'these walls aren\'t parallel — the number is saved as a note'}</div>
       ${tapeBox('distance between the walls')}${lenInput('sk2-len')}
       ${ro ? '' : `<div class="sk2-row"><button class="sk2-b warn" data-sk2p="deldim">Delete measuring line</button></div>`}`;
   } else if(sel && sel.kind==='opening'){
@@ -5085,7 +5099,7 @@ function sk2Panel(){
       <div class="sk2-row"><button class="sk2-b main" data-sk2p="mall">Select everything</button><button class="sk2-b" data-sk2p="mpaste">📋 Paste</button></div>`;
   } else {
     const t = sk2Totals(plan), red = ro ? 0 : sk2RedCount(plan);
-    h = `${red ? `<div class="sk2-tapebox" style="border-color:#B3261E;background:#FCEDEA;color:#7a1f16;"><b>${red} measurement${red===1?'':'s'} in red</b> — the drawing doesn't match ${red===1?'it':'them'} yet. <button type="button" class="sk2-b main" data-sk2p="fixsizes" style="display:block;width:100%;margin:8px 0;">🔧 Fix the drawing to my numbers (keeps the angles)</button>Or tap <b>📐 Straighten up</b> at the top to also square the corners. If ${red===1?'it stays':'they stay'} red after that, the numbers don't add up (like 16' on one side and 17' across from it) — re-measure ${red===1?'that wall':'those walls'}. Your numbers never change unless you change them.</div>` : ''}<h3>Totals</h3><div class="sk2-big">${t.sqft.toFixed(1)} sq ft</div><div class="sub">${t.lf.toFixed(1)} LF of walls (doors taken out)</div>
+    h = `${red && sk2MeasureFirst() ? `<div class="sk2-tapebox" style="border-color:#1F6FD1;background:#EEF5FD;color:#17406e;"><b>📌 ${red} measurement${red===1?'':'s'} saved, not fitted yet</b> — that's normal while you measure (they show red until fitted). When you're done measuring everything:<button type="button" class="sk2-b main" data-sk2p="fixsizes" style="display:block;width:100%;margin:8px 0 0;">🔧 Fix sizes — fit the whole floor plan to my numbers</button></div>` : ''}${red && !sk2MeasureFirst() ? `<div class="sk2-tapebox" style="border-color:#B3261E;background:#FCEDEA;color:#7a1f16;"><b>${red} measurement${red===1?'':'s'} in red</b> — the drawing doesn't match ${red===1?'it':'them'} yet. <button type="button" class="sk2-b main" data-sk2p="fixsizes" style="display:block;width:100%;margin:8px 0;">🔧 Fix the drawing to my numbers (keeps the angles)</button>Or tap <b>📐 Straighten up</b> at the top to also square the corners. If ${red===1?'it stays':'they stay'} red after that, the numbers don't add up (like 16' on one side and 17' across from it) — re-measure ${red===1?'that wall':'those walls'}. Your numbers never change unless you change them.</div>` : ''}<h3>Totals</h3><div class="sk2-big">${t.sqft.toFixed(1)} sq ft</div><div class="sub">${t.lf.toFixed(1)} LF of walls (doors taken out)</div>
       ${(()=>{ const used = sk2ColorUsed(plan); if(!(used.length > 1 || (used.length===1 && used[0].k!=='black'))) return ''; const lf = sk2ColorLF(plan);
         return `<div class="sk2-field" style="margin-top:10px;"><label>Walls by color</label><div class="sk2-list">${used.map(x=>`<div style="cursor:default;"><span><span class="sk2-dot" style="background:${x.c}"></span>${esc(sk2ColorName(plan, x.k))}</span><span>${lf[x.k].toFixed(1)} LF</span></div>`).join('')}</div>
           ${ro ? '' : `<button class="sk2-b" style="margin-top:6px;" data-sk2p="colornames">✏️ Change what the colors mean</button>`}</div>`; })()}
@@ -5209,6 +5223,11 @@ function sk2PanelAction(a, btn){
 function sk2TopAction(a){
   const S = STATE.sk2;
   if(a==='fit'){ sk2Fit(); sk2Draw(); return; }
+  if(a==='measurefirst'){
+    const on = !sk2MeasureFirst(); try{ localStorage.setItem('gsb-sk2-measurefirst', on ? '1' : '0'); }catch(e){}
+    const b = document.querySelector('#sk2-root [data-sk2="measurefirst"]'); if(b){ b.classList.toggle('on', on); b.textContent = '📌 Measure first: '+(on?'ON':'OFF'); }
+    sk2Panel(); sk2Toast(on ? '📌 Measure first is ON — your numbers are just written down, nothing moves. Tap 🔧 Fix sizes when you\'re done.' : 'Measure first is OFF — walls move as you measure.'); return;
+  }
   if(a==='fixsizes'){
     if(!S.plan.shapes.length){ sk2Toast('Draw some walls first'); return; }
     const before = sk2RedCount(S.plan);
@@ -12977,7 +12996,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.25-e</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-a</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
