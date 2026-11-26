@@ -349,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.26-b';
+const APP_VERSION = 'v2026.11.26-c';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3771,7 +3771,8 @@ function sk2Resize(){
 }
 function sk2Toast(msg){
   const t = document.getElementById('sk2-toast'); if(!t) return;
-  t.textContent = msg; t.style.opacity = '1'; clearTimeout(t._h); t._h = setTimeout(()=>{ t.style.opacity='0'; }, 2600);
+  const S = STATE.sk2; if(S && S._bareNote){ msg = msg.replace(/^(✓ \S+(?: \S+)?)/, '$1 '+S._bareNote); S._bareNote = null; }
+  t.textContent = msg; t.style.opacity = '1'; clearTimeout(t._h); t._h = setTimeout(()=>{ t.style.opacity='0'; }, msg.length > 90 ? 6000 : 2600);
 }
 function sk2FocusTape(){
   const S = STATE.sk2; if(!S || !S.tapeOn || S.readOnly) return;
@@ -4905,7 +4906,7 @@ function sk2Select(h){
 /* ---------- a measurement arrived (tape or typed) ---------- */
 function sk2TapeCommit(raw){
   const S = STATE.sk2; if(!S || S.readOnly) return;
-  const L = sk2ParseLen(raw);
+  let L = sk2ParseLen(raw); if(L!=null) L = sk2BareInches(raw, L);
   if(L==null){ if(String(raw).trim()) sk2Toast('Could not read "'+String(raw).trim()+'"'); return; }
   // the tape sometimes sends the same reading twice — the second one must not land on the next wall
   const now = Date.now();
@@ -4921,6 +4922,23 @@ function sk2TapeCommit(raw){
   sk2ApplyLength(L);
 }
 function sk2MeasureFirst(){ try{ return localStorage.getItem('gsb-sk2-measurefirst') !== '0'; }catch(e){ return true; } }
+// a plain number with no ' or " (like 53): feet or inches? Pick whichever is closer to how long that line is drawn.
+// 12 or less always means feet. Plans written in inches (144, 53, 207) then come out right.
+function sk2BareInches(raw, L){
+  const S = STATE.sk2; if(!S || !S.plan || !S.sel) return L;
+  const t = String(raw==null?'':raw).trim();
+  if(!/^\d+(\.\d+)?$/.test(t)) return L;
+  const n = parseFloat(t); if(!(n > 12)) return L;
+  let drawn = null;
+  try{
+    if(S.sel.kind==='wall'){ const sh = S.plan.shapes.find(x=>x.id===S.sel.sid); if(sh){ const a = sh.pts[S.sel.seg], b = sh.pts[(S.sel.seg+1)%sh.pts.length]; drawn = Math.hypot(b.x-a.x, b.y-a.y); } }
+    else if(S.sel.kind==='dim'){ const d = (S.plan.dims||[]).find(x=>x.id===S.sel.id); const g = d && sk2DimGeom(S.plan, d); if(g) drawn = g.cur; }
+  }catch(e){}
+  if(!(drawn > 1)) return L;
+  const asFeet = Math.abs(Math.log(n*12/drawn)), asIn = Math.abs(Math.log(n/drawn));
+  if(asIn < asFeet){ S._bareNote = '(read '+t+' as inches = '+sk2Fmt(n)+')'; return n; }
+  return L;
+}
 function sk2ApplyLength(L){
   const S = STATE.sk2, sel = S.sel, plan = S.plan;
   if(sk2MeasureFirst() && (sel.kind==='wall' || sel.kind==='dim')){
@@ -5194,7 +5212,7 @@ function sk2PanelAction(a, btn){
   if(a==='mnone'){ sk2SetMulti(null); return; }
   if(a==='mdel'){ const m = S.multi; if(!m) return; sk2Push(); sk2DeleteSet(plan, m); S.multi = null; S.dirty = true; sk2Draw(); sk2Panel(); sk2Toast('Deleted — ↶ Undo brings it back'); return; }
   const shOf = ()=> sel && plan.shapes.find(x=>x.id===sel.sid);
-  if(a==='setlen'){ S.selByUser = true; const i = document.getElementById(btn.dataset.input||'sk2-len'); const L = sk2ParseLen(i && i.value); if(L==null){ sk2Toast('Type a size like 12\' 4 3/8" or 12 4'); return; } if(i) i.value=''; sk2ApplyLength(L); if(i) i.blur(); return; }
+  if(a==='setlen'){ S.selByUser = true; const i = document.getElementById(btn.dataset.input||'sk2-len'); let L = sk2ParseLen(i && i.value); if(L!=null) L = sk2BareInches(i && i.value, L); if(L==null){ sk2Toast('Type a size like 12\' 4 3/8" or 12 4'); return; } if(i) i.value=''; sk2ApplyLength(L); if(i) i.blur(); return; }
   if(a==='nextwall' || a==='prevwall'){ const sh = shOf(); const n = sk2SegCount(sh); S.selByUser = true; S.sel = {kind:'wall', sid:sh.id, seg:(sel.seg + (a==='nextwall'?1:n-1)) % n}; sk2Draw(); sk2Panel(); sk2FocusTape(); return; }
   if(a==='adddoor' || a==='addwindow'){
     const sh = shOf(); const len = sk2SegLen(sh, sel.seg); const w = Math.min(a==='adddoor'?32:36, len*0.8);
@@ -13018,7 +13036,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-b</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-c</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
