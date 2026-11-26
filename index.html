@@ -349,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.26-e';
+const APP_VERSION = 'v2026.11.26-f';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3084,6 +3084,13 @@ function sk2FixAll(plan){
   } });
   const tees = [];
   nodes.forEach((P, i)=>segs.forEach(sg=>{ if(sg.a===i || sg.b===i) return; const r = sk2PointSegDist(P, nodes[sg.a], nodes[sg.b]); if(r.d < TOL && r.t > 0.02 && r.t < 0.98) tees.push({p:i, sg}); }));
+  // a wall that other walls run into (a T) is split there, so those walls can't slide off its end
+  const pieces = [];
+  segs.forEach(sg=>{
+    const on = tees.filter(o=>o.sg===sg).map(o=>({p:o.p, t:(nodes[o.p].x-nodes[sg.a].x)*sg.d.x + (nodes[o.p].y-nodes[sg.a].y)*sg.d.y})).sort((u,v)=>u.t-v.t);
+    const chain = [sg.a].concat(on.map(o=>o.p)).concat([sg.b]);
+    for(let q=0;q<chain.length-1;q++){ const a = chain[q], b = chain[q+1]; if(a===b) continue; const L0 = Math.hypot(nodes[b].x-nodes[a].x, nodes[b].y-nodes[a].y); if(L0 < 0.5) continue; pieces.push({a, b, d:sg.d, n:sg.n, L0}); }
+  });
   // measuring lines: wall-to-wall distances you measured
   const dimC = [];
   (plan.dims||[]).forEach(d=>{ if(d.val==null) return; const A = segOf.get(d.a.sid+':'+d.a.seg), B = segOf.get(d.b.sid+':'+d.b.seg); if(!A || !B || A.i===B.i) return;
@@ -3109,14 +3116,16 @@ function sk2FixAll(plan){
   const dirOf = (y, sg)=>{ if(!y) return sg.d; const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1], L = Math.hypot(dx,dy) || 1; return {x:dx/L, y:dy/L}; };
   // one round of rows. cur = null → angles exactly as drawn; cur = positions → angles may move a little
   const build = (cur, skip)=> (row)=>{
-    segs.forEach((sg, si)=>{
+    segs.forEach((sg, si)=>{                                                                                                // your number
+      if(sg.m==null || skip.has('w'+si)) return; const d = dirOf(cur, sg);
+      const c = {}; add(c, sg.b, d.x, d.y); add(c, sg.a, -d.x, -d.y); row(c, sg.m, cur ? 1e4 : 1e5);
+    });
+    pieces.forEach(sg=>{
       const d = dirOf(cur, sg);
       let c = {}; add(c, sg.b, sg.n.x, sg.n.y); add(c, sg.a, -sg.n.x, -sg.n.y); row(c, 0, cur ? 3 : 1e8);                     // the drawn angle
-      c = {}; add(c, sg.b, d.x, d.y); add(c, sg.a, -d.x, -d.y);
-      if(sg.m!=null && !skip.has('w'+si)) row(c, sg.m, cur ? 1e4 : 1e5); else { c[S] = -sg.L0; row(c, 0, 1); }               // your number / in proportion
+      c = {}; add(c, sg.b, d.x, d.y); add(c, sg.a, -d.x, -d.y); c[S] = -sg.L0; row(c, 0, 1);                                    // in proportion
     });
-    pin.forEach(si=>{ const sg = segs[si], c = {}; add(c, sg.b, sg.d.x, sg.d.y); add(c, sg.a, -sg.d.x, -sg.d.y); row(c, sg.L0*k0, 1e2); });
-    tees.forEach(({p, sg})=>{ const d = dirOf(cur, sg), n = {x:-d.y, y:d.x}; const c = {}; add(c, p, n.x, n.y); add(c, sg.a, -n.x, -n.y); row(c, 0, cur ? 1e5 : 1e8); });
+    pin.forEach(si=>{ const sg = pieces[si], c = {}; add(c, sg.b, sg.d.x, sg.d.y); add(c, sg.a, -sg.d.x, -sg.d.y); row(c, sg.L0*k0, 1e2); });
     dimC.forEach((dc, di)=>{ if(skip.has('d'+di)) return; const db = dirOf(cur, dc.sb), n = {x:-db.y, y:db.x};
       const c = {}; add(c, dc.sa.a, (1-dc.t)*n.x, (1-dc.t)*n.y); add(c, dc.sa.b, dc.t*n.x, dc.t*n.y); add(c, dc.sb.a, -n.x, -n.y); row(c, dc.side*dc.val, cur ? 1e4 : 1e5); });
   };
@@ -3124,12 +3133,12 @@ function sk2FixAll(plan){
   const dimLen = (y, dc)=>{ const db = dirOf(y, dc.sb), n = {x:-db.y, y:db.x}; const px = y[2*dc.sa.a]*(1-dc.t) + y[2*dc.sa.b]*dc.t, py = y[2*dc.sa.a+1]*(1-dc.t) + y[2*dc.sa.b+1]*dc.t; return Math.abs((px - y[2*dc.sb.a])*n.x + (py - y[2*dc.sb.a+1])*n.y); };
   const offList = (y)=> segs.map((sg,i)=>sg.m!=null && Math.abs(wallLen(y, sg) - sg.m) >= 0.5 ? {k:'w'+i, e:Math.abs(wallLen(y, sg) - sg.m)} : null)
     .concat(dimC.map((dc,i)=>Math.abs(dimLen(y, dc) - dc.val) >= 0.5 ? {k:'d'+i, e:Math.abs(dimLen(y, dc) - dc.val)} : null)).filter(o=>o && !skipNow.has(o.k));
-  const flips = (y)=> segs.some(sg=> sg.L0 >= 6 && ((y[2*sg.b]-y[2*sg.a])*sg.d.x + (y[2*sg.b+1]-y[2*sg.a+1])*sg.d.y) < -0.5);
-  const turnOf = (y)=> Math.max(0, ...segs.map(sg=>{ const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1]; const c = Math.max(-1, Math.min(1, (dx*sg.d.x + dy*sg.d.y)/(Math.hypot(dx,dy)||1))); return Math.acos(c)*180/Math.PI; }));
+  const flips = (y)=> pieces.some(sg=> sg.L0 >= 6 && ((y[2*sg.b]-y[2*sg.a])*sg.d.x + (y[2*sg.b+1]-y[2*sg.a+1])*sg.d.y) < -0.5);
+  const turnOf = (y)=> Math.max(0, ...pieces.map(sg=>{ const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1]; const c = Math.max(-1, Math.min(1, (dx*sg.d.x + dy*sg.d.y)/(Math.hypot(dx,dy)||1))); return Math.acos(c)*180/Math.PI; }));
   const flexFrom = (y0, skip)=>{ let y = y0; for(let it=0; it<40; it++){ const z = linsolve(build(y, skip)); if(!z) return null; const mv = Math.max(...Array.from(z).map((v,i)=>Math.abs(v-y[i]))); y = z; if(mv < 0.005) break; } return y; };
   // 1) angles exactly as drawn   2) if needed, nudge angles a little (max 6°)   3) still impossible → keep as many numbers as possible, leave the odd one red
   let best = null; const skip = new Set(); let skipNow = skip; const pin = new Set();
-  const flipped = (y)=> segs.map((sg,i)=> sg.L0 >= 6 && ((y[2*sg.b]-y[2*sg.a])*sg.d.x + (y[2*sg.b+1]-y[2*sg.a+1])*sg.d.y) < 0.5*sg.L0*0.2 ? i : -1).filter(i=>i>=0 && !pin.has(i));
+  const flipped = (y)=> pieces.map((sg,i)=> sg.L0 >= 6 && ((y[2*sg.b]-y[2*sg.a])*sg.d.x + (y[2*sg.b+1]-y[2*sg.a+1])*sg.d.y) < 0.5*sg.L0*0.2 ? i : -1).filter(i=>i>=0 && !pin.has(i));
   const total = segs.filter(sg=>sg.m!=null).length + dimC.length;
   const typos = []; let k0 = 1;
   { const ratios = [];
@@ -13048,7 +13057,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-e</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-f</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
