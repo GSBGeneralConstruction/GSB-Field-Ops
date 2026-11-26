@@ -349,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.26-a';
+const APP_VERSION = 'v2026.11.26-b';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3115,12 +3115,18 @@ function sk2FixAll(plan){
   const dimLen = (y, dc)=>{ const db = dirOf(y, dc.sb), n = {x:-db.y, y:db.x}; const px = y[2*dc.sa.a]*(1-dc.t) + y[2*dc.sa.b]*dc.t, py = y[2*dc.sa.a+1]*(1-dc.t) + y[2*dc.sa.b+1]*dc.t; return Math.abs((px - y[2*dc.sb.a])*n.x + (py - y[2*dc.sb.a+1])*n.y); };
   const offList = (y)=> segs.map((sg,i)=>sg.m!=null && Math.abs(wallLen(y, sg) - sg.m) >= 0.1 ? {k:'w'+i, e:Math.abs(wallLen(y, sg) - sg.m)} : null)
     .concat(dimC.map((dc,i)=>Math.abs(dimLen(y, dc) - dc.val) >= 0.1 ? {k:'d'+i, e:Math.abs(dimLen(y, dc) - dc.val)} : null)).filter(Boolean);
-  const flips = (y)=> segs.some(sg=>((y[2*sg.b]-y[2*sg.a])*sg.d.x + (y[2*sg.b+1]-y[2*sg.a+1])*sg.d.y) < 0.5);
+  const flips = (y)=> segs.some(sg=> sg.L0 >= 6 && ((y[2*sg.b]-y[2*sg.a])*sg.d.x + (y[2*sg.b+1]-y[2*sg.a+1])*sg.d.y) < -0.5);
   const turnOf = (y)=> Math.max(0, ...segs.map(sg=>{ const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1]; const c = Math.max(-1, Math.min(1, (dx*sg.d.x + dy*sg.d.y)/(Math.hypot(dx,dy)||1))); return Math.acos(c)*180/Math.PI; }));
   const flexFrom = (y0, skip)=>{ let y = y0; for(let it=0; it<40; it++){ const z = linsolve(build(y, skip)); if(!z) return null; const mv = Math.max(...Array.from(z).map((v,i)=>Math.abs(v-y[i]))); y = z; if(mv < 0.005) break; } return y; };
   // 1) angles exactly as drawn   2) if needed, nudge angles a little (max 6°)   3) still impossible → keep as many numbers as possible, leave the odd one red
   let best = null; const skip = new Set();
   const total = segs.filter(sg=>sg.m!=null).length + dimC.length;
+  const typos = [];
+  { const ratios = [];
+    segs.forEach((sg,i)=>{ if(sg.m!=null && sg.L0 > 6) ratios.push({k:'w'+i, r:sg.m/sg.L0, val:sg.m}); });
+    dimC.forEach((dc,i)=>{ const cur = dimLen(Array.from({length:V}, (_,j)=> j===S ? 1 : (j%2 ? nodes[(j-1)/2].y : nodes[j/2].x)), dc); if(cur > 6) ratios.push({k:'d'+i, r:dc.val/cur, val:dc.val}); });
+    if(ratios.length >= 3){ const sorted = ratios.map(o=>o.r).sort((a,b)=>a-b), med = sorted[Math.floor(sorted.length/2)];
+      ratios.forEach(o=>{ if(o.r > med*3 || o.r < med/3){ skip.add(o.k); typos.push(o.val); } }); } }
   for(let round=0; round<=total; round++){
     const x0 = linsolve(build(null, skip)); if(!x0) break;
     let y = x0, off = offList(x0), nudged = 0;
@@ -3138,7 +3144,7 @@ function sk2FixAll(plan){
   const roomOf = (p)=>{ let bst = null, ba = Infinity; shapes.forEach(sh=>{ if(!sh.closed) return; const o = oldOf.get(sh.id); if(sk2PointInPoly(p, o)){ const ar = Math.abs(o.reduce((t,q,i)=>{ const r2 = o[(i+1)%o.length]; return t + q.x*r2.y - r2.x*q.y; }, 0)); if(ar < ba){ ba = ar; bst = sh; } } }); return bst; };
   const k = x[S] > 0.05 ? x[S] : 1;
   plan.boxes.concat(plan.notes, plan.columns.filter(c=>!c.sid)).forEach(it=>{ const sh = roomOf(it); if(!sh) return; const o = avg(oldOf.get(sh.id)), n = avg(sh.pts); it.x = n.x + (it.x - o.x)*k; it.y = n.y + (it.y - o.y)*k; });
-  return { red: sk2RedCount(plan), scale: x[S], nudged: best.nudged };
+  return { red: sk2RedCount(plan), scale: x[S], nudged: best.nudged, typos };
 }
 function sk2StraightenUp(plan, opts){
   const keepAngles = !!(opts && opts.keepAngles);   // 🔧 Fix sizes: every wall keeps the angle it was drawn at — only the lengths change
@@ -5104,6 +5110,7 @@ function sk2Panel(){
         return `<div class="sk2-field" style="margin-top:10px;"><label>Walls by color</label><div class="sk2-list">${used.map(x=>`<div style="cursor:default;"><span><span class="sk2-dot" style="background:${x.c}"></span>${esc(sk2ColorName(plan, x.k))}</span><span>${lf[x.k].toFixed(1)} LF</span></div>`).join('')}</div>
           ${ro ? '' : `<button class="sk2-b" style="margin-top:6px;" data-sk2p="colornames">✏️ Change what the colors mean</button>`}</div>`; })()}
       ${t.rooms.length ? `<div class="sk2-list">${t.rooms.map(r=>`<div data-sk2p="openroom" data-rid="${r.id}"><span><b>${esc(r.name)}</b>${r.measured<r.walls?' <span style="color:#B8863A">(~)</span>':''}</span><span>${r.sqft.toFixed(1)} sq ft · ${r.lf.toFixed(1)} LF</span></div>`).join('')}</div>` : ''}
+      ${ro ? '' : `<button type="button" class="sk2-b" data-sk2p="copyforclaude" style="width:100%;margin-top:10px;">📋 Copy this sketch for Claude (if something looks wrong)</button>`}
       ${ro ? '' : `<p class="sub" style="margin-top:12px;"><b>How it works</b><br>1. ✏️ Draw a room with your finger — rough is fine. Leave a gap where the door is.<br>2. Tap a wall, then measure it with the tape (or type it). The wall snaps to the size and the room adjusts. The next wall is picked for you.<br>3. Add 🚪 doors, 🪟 windows, ⬛ cabinets/appliances, ⬤ columns and 📝 notes.<br>4. Pinch to zoom, drag with 👆 Select to pan. Tap <b>Save</b> when done.</p>`}`;
   }
   const _keepScroll = el.scrollTop;
@@ -5173,6 +5180,16 @@ function sk2PanelAction(a, btn){
   if(a==='calccopy'){ const t = sk2CalcText(plan); const done = ()=>sk2Toast('📄 Materials list copied — paste it into the estimate or a note');
     if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, ()=>{ prompt('Copy this list:', t); }); else prompt('Copy this list:', t); return; }
   if(a==='mpaste'){ sk2Paste(); return; }
+  if(a==='copyforclaude'){
+    const pl = S.plan, r1 = (v)=>Math.round(v*10)/10;
+    const slim = { v:APP_VERSION, shapes:pl.shapes.map(x=>({id:x.id, c:x.closed?1:0, p:x.pts.map(q=>[r1(q.x), r1(q.y)]), m:x.meas||{}, l:x.lock||{}})),
+      dims:(pl.dims||[]).map(d=>({id:d.id, a:[d.a.sid, d.a.seg, r1(d.a.t*100)/100], b:[d.b.sid, d.b.seg, r1(d.b.t*100)/100], v:d.val})),
+      openings:pl.openings.map(o=>({sid:o.sid, seg:o.seg, t:r1(o.t*100)/100, w:o.w, type:o.type})), red:sk2RedCount(pl) };
+    const txt = 'GSB-SKETCH ' + JSON.stringify(slim);
+    const done = ()=>sk2Toast('📋 Sketch copied — paste it in your chat with Claude');
+    if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, ()=>{ prompt('Copy all of this and paste it to Claude:', txt); }); else prompt('Copy all of this and paste it to Claude:', txt);
+    return;
+  }
   if(a==='mall'){ sk2SelectAll(); return; }
   if(a==='mnone'){ sk2SetMulti(null); return; }
   if(a==='mdel'){ const m = S.multi; if(!m) return; sk2Push(); sk2DeleteSet(plan, m); S.multi = null; S.dirty = true; sk2Draw(); sk2Panel(); sk2Toast('Deleted — ↶ Undo brings it back'); return; }
@@ -5232,9 +5249,14 @@ function sk2TopAction(a){
     if(!S.plan.shapes.length){ sk2Toast('Draw some walls first'); return; }
     const before = sk2RedCount(S.plan);
     sk2Push();
+    const was = JSON.stringify(S.plan.shapes.map(x=>x.pts));
     let r = sk2FixAll(S.plan);
     if(!r){ r = sk2StraightenUp(S.plan, {keepAngles:true}); }      // couldn't do the whole plan in one go: room by room instead
-    S.dirty = true; try{ sk2Fit(); }catch(e){} sk2Draw(); sk2Panel();
+    const changed = JSON.stringify(S.plan.shapes.map(x=>x.pts)) !== was;
+    S.dirty = true; if(changed){ try{ sk2Fit(); }catch(e){} } sk2Draw(); sk2Panel();
+    const typoTxt = (r && r.typos && r.typos.length) ? ' ⚠ '+r.typos.map(v=>sk2Fmt(v)).join(', ')+' look'+(r.typos.length===1?'s':'')+' like a typo (way too big or small for '+(r.typos.length===1?'its':'their')+' spot) — '+(r.typos.length===1?'it was':'they were')+' left out. Tap '+(r.typos.length===1?'it':'them')+' and fix the number, then tap 🔧 again.' : '';
+    if(!changed){ sk2Toast('🔧 Nothing could be moved'+(before ? ' — '+before+' measurement'+(before===1?'':'s')+' still in red.' : '.')+typoTxt+' Send Claude a screenshot if this keeps happening.'); return; }
+    if(typoTxt){ sk2Toast('🔧 Fitted the floor plan to your other numbers.'+typoTxt+' ↶ Undo puts it back.'); return; }
     sk2Toast(!r.red ? (r.nudged > 0.05 ? '🔧 Fixed — every wall now matches your measurements ✓. Some corners were nudged up to '+(Math.round(r.nudged*10)/10)+'° so your numbers fit. ↶ Undo puts it back.' : '🔧 Fixed — every wall now matches your measurements, and no angle was changed ✓. ↶ Undo puts it back.')
       : '🔧 Fixed what could be fixed'+(before > r.red ? ' ('+(before - r.red)+' now match)' : '')+'. '+r.red+' measurement'+(r.red===1?'':'s')+' in red can\'t be true together with the others (like 7\' on one side and 8\' straight across from it) — re-measure '+(r.red===1?'that wall':'those walls')+'. Your numbers were not changed. ↶ Undo puts it back.');
     return;
@@ -12996,7 +13018,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-a</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-b</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
