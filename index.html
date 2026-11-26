@@ -349,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.26-f';
+const APP_VERSION = 'v2026.11.26-g';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3146,7 +3146,7 @@ function sk2FixAll(plan){
     dimC.forEach((dc,i)=>{ const cur = dimLen(Array.from({length:V}, (_,j)=> j===S ? 1 : (j%2 ? nodes[(j-1)/2].y : nodes[j/2].x)), dc); if(cur > 6) ratios.push({k:'d'+i, r:dc.val/cur, val:dc.val}); });
     if(ratios.length){ const sr = ratios.map(o=>o.r).sort((a,b)=>a-b); k0 = sr[Math.floor(sr.length/2)]; }
     if(ratios.length >= 3){ const sorted = ratios.map(o=>o.r).sort((a,b)=>a-b), med = sorted[Math.floor(sorted.length/2)];
-      ratios.forEach(o=>{ if(o.r > med*3 || o.r < med/3){ skip.add(o.k); typos.push(o.val); } }); } }
+      ratios.forEach(o=>{ if((o.r > med*5 && o.val % 12 === 0) || o.r < med/8){ skip.add(o.k); typos.push(o.val); } }); } }
   for(let round=0, tries=0; round<=total && tries < 60; round++, tries++){
     const x0 = linsolve(build(null, skip)); if(!x0) break;
     if(flips(x0)){ const f = flipped(x0); if(f.length){ f.forEach(i=>pin.add(i)); round--; continue; } }
@@ -4960,6 +4960,21 @@ function sk2BareInches(raw, L){
   if(asIn < asFeet){ S._bareNote = '(read '+t+' as inches = '+sk2Fmt(n)+')'; return n; }
   return L;
 }
+// numbers that are way too big for their line and were typed as whole feet — most likely inches typed as feet (53 → 53')
+function sk2InchSuspects(plan){
+  const out = [];
+  (plan.dims||[]).forEach(d=>{ if(d.val==null) return; let g = null; try{ g = sk2DimGeom(plan, d); }catch(e){} if(!g || !(g.cur > 1)) return;
+    if(d.val % 12 === 0 && d.val / g.cur > 5) out.push({kind:'dim', id:d.id, val:d.val}); });
+  plan.shapes.forEach(sh=>{ Object.keys(sh.meas||{}).forEach(k=>{ const m = sh.meas[k], a = sh.pts[+k], b = sh.pts[(+k+1)%sh.pts.length]; if(m==null || !a || !b) return;
+    const L = Math.hypot(b.x-a.x, b.y-a.y); if(L > 1 && m % 12 === 0 && m / L > 5) out.push({kind:'wall', sid:sh.id, seg:+k, val:m}); }); });
+  return out;
+}
+function sk2InchSuspectsHTML(plan){
+  const list = sk2InchSuspects(plan); if(!list.length) return '';
+  return `<div class="sk2-tapebox" style="border-color:#B3261E;background:#FCEDEA;color:#7a1f16;"><b>⚠ ${list.length===1?'This number looks':'These numbers look'} way too big for ${list.length===1?'its':'their'} spot</b> — probably inches typed as feet. Check your paper, then tap to change:` +
+    list.map((o,i)=>`<button type="button" class="sk2-b main" data-sk2p="inchfix" data-i="${i}" style="display:block;width:100%;margin:8px 0 0;">${sk2Fmt(o.val)} → change to ${o.val/12}" (${sk2Fmt(o.val/12)})</button>`).join('') +
+    `<div style="margin-top:6px;">Or tap the line on the sketch and type the right number. Then tap 🔧 Fix sizes.</div></div>`;
+}
 function sk2ApplyLength(L){
   const S = STATE.sk2, sel = S.sel, plan = S.plan;
   if(sk2MeasureFirst() && (sel.kind==='wall' || sel.kind==='dim')){
@@ -5144,7 +5159,7 @@ function sk2Panel(){
       <div class="sk2-row"><button class="sk2-b main" data-sk2p="mall">Select everything</button><button class="sk2-b" data-sk2p="mpaste">📋 Paste</button></div>`;
   } else {
     const t = sk2Totals(plan), red = ro ? 0 : sk2RedCount(plan);
-    h = `${red && sk2MeasureFirst() ? `<div class="sk2-tapebox" style="border-color:#1F6FD1;background:#EEF5FD;color:#17406e;"><b>📌 ${red} measurement${red===1?'':'s'} saved, not fitted yet</b> — that's normal while you measure (they show red until fitted). When you're done measuring everything:<button type="button" class="sk2-b main" data-sk2p="fixsizes" style="display:block;width:100%;margin:8px 0 0;">🔧 Fix sizes — fit the whole floor plan to my numbers</button></div>` : ''}${red && !sk2MeasureFirst() ? `<div class="sk2-tapebox" style="border-color:#B3261E;background:#FCEDEA;color:#7a1f16;"><b>${red} measurement${red===1?'':'s'} in red</b> — the drawing doesn't match ${red===1?'it':'them'} yet. <button type="button" class="sk2-b main" data-sk2p="fixsizes" style="display:block;width:100%;margin:8px 0;">🔧 Fix the drawing to my numbers (keeps the angles)</button>Or tap <b>📐 Straighten up</b> at the top to also square the corners. If ${red===1?'it stays':'they stay'} red after that, the numbers don't add up (like 16' on one side and 17' across from it) — re-measure ${red===1?'that wall':'those walls'}. Your numbers never change unless you change them.</div>` : ''}<h3>Totals</h3><div class="sk2-big">${t.sqft.toFixed(1)} sq ft</div><div class="sub">${t.lf.toFixed(1)} LF of walls (doors taken out)</div>
+    h = sk2InchSuspectsHTML(S.plan) + `${red && sk2MeasureFirst() ? `<div class="sk2-tapebox" style="border-color:#1F6FD1;background:#EEF5FD;color:#17406e;"><b>📌 ${red} measurement${red===1?'':'s'} saved, not fitted yet</b> — that's normal while you measure (they show red until fitted). When you're done measuring everything:<button type="button" class="sk2-b main" data-sk2p="fixsizes" style="display:block;width:100%;margin:8px 0 0;">🔧 Fix sizes — fit the whole floor plan to my numbers</button></div>` : ''}${red && !sk2MeasureFirst() ? `<div class="sk2-tapebox" style="border-color:#B3261E;background:#FCEDEA;color:#7a1f16;"><b>${red} measurement${red===1?'':'s'} in red</b> — the drawing doesn't match ${red===1?'it':'them'} yet. <button type="button" class="sk2-b main" data-sk2p="fixsizes" style="display:block;width:100%;margin:8px 0;">🔧 Fix the drawing to my numbers (keeps the angles)</button>Or tap <b>📐 Straighten up</b> at the top to also square the corners. If ${red===1?'it stays':'they stay'} red after that, the numbers don't add up (like 16' on one side and 17' across from it) — re-measure ${red===1?'that wall':'those walls'}. Your numbers never change unless you change them.</div>` : ''}<h3>Totals</h3><div class="sk2-big">${t.sqft.toFixed(1)} sq ft</div><div class="sub">${t.lf.toFixed(1)} LF of walls (doors taken out)</div>
       ${(()=>{ const used = sk2ColorUsed(plan); if(!(used.length > 1 || (used.length===1 && used[0].k!=='black'))) return ''; const lf = sk2ColorLF(plan);
         return `<div class="sk2-field" style="margin-top:10px;"><label>Walls by color</label><div class="sk2-list">${used.map(x=>`<div style="cursor:default;"><span><span class="sk2-dot" style="background:${x.c}"></span>${esc(sk2ColorName(plan, x.k))}</span><span>${lf[x.k].toFixed(1)} LF</span></div>`).join('')}</div>
           ${ro ? '' : `<button class="sk2-b" style="margin-top:6px;" data-sk2p="colornames">✏️ Change what the colors mean</button>`}</div>`; })()}
@@ -5219,6 +5234,14 @@ function sk2PanelAction(a, btn){
   if(a==='calccopy'){ const t = sk2CalcText(plan); const done = ()=>sk2Toast('📄 Materials list copied — paste it into the estimate or a note');
     if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, ()=>{ prompt('Copy this list:', t); }); else prompt('Copy this list:', t); return; }
   if(a==='mpaste'){ sk2Paste(); return; }
+  if(a==='inchfix'){
+    const o = sk2InchSuspects(S.plan)[+btn.dataset.i]; if(!o) return;
+    sk2Push(); const v = o.val/12;
+    if(o.kind==='dim'){ const d = (S.plan.dims||[]).find(x=>x.id===o.id); if(d) d.val = v; }
+    else { const sh = S.plan.shapes.find(x=>x.id===o.sid); if(sh) sh.meas[o.seg] = v; }
+    S.dirty = true; sk2Draw(); sk2Panel();
+    sk2Toast('✓ Changed '+sk2Fmt(o.val)+' to '+sk2Fmt(v)+'. When the numbers are right, tap 🔧 Fix sizes.'); return;
+  }
   if(a==='copyforclaude'){
     const pl = S.plan, r1 = (v)=>Math.round(v*10)/10;
     const slim = { v:APP_VERSION, shapes:pl.shapes.map(x=>({id:x.id, c:x.closed?1:0, p:x.pts.map(q=>[r1(q.x), r1(q.y)]), m:x.meas||{}, l:x.lock||{}})),
@@ -13057,7 +13080,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-f</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-g</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
