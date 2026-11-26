@@ -349,7 +349,7 @@ canvas.sketch-canvas{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.15);touc
 <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore-compat.js"></script>
 <script>
 /* Auto-update: if this device is showing an old saved copy, grab the newest one automatically. */
-const APP_VERSION = 'v2026.11.26-d';
+const APP_VERSION = 'v2026.11.26-e';
 (function(){
   try{
     if(!/^https?:/i.test(location.protocol)) return;
@@ -3063,8 +3063,14 @@ function sk2RedCount(plan){ let n = 0; plan.shapes.forEach(sh=>{ for(let i=0;i<s
 function sk2FixAll(plan){
   const shapes = plan.shapes.filter(sh=>sh.pts.length >= 2);
   if(!shapes.length) return null;
-  const TOL = 1.0, nodes = [], at = new Map();
-  shapes.forEach(sh=>sh.pts.forEach((p,i)=>{ let k = nodes.findIndex(q=>Math.hypot(q.x-p.x, q.y-p.y) < TOL); if(k < 0){ k = nodes.length; nodes.push({x:p.x, y:p.y}); } at.set(sh.id+':'+i, k); }));
+  const TOL = 6.0, nodes = [], at = new Map();      // hand-drawn rooms: corners within 6" of each other are the same corner
+  { const all = []; shapes.forEach(sh=>sh.pts.forEach((p,i)=>all.push({key:sh.id+':'+i, sid:sh.id, i, x:p.x, y:p.y})));
+    const par = all.map((_,i)=>i), find = (i)=>{ while(par[i]!==i){ par[i] = par[par[i]]; i = par[i]; } return i; };
+    for(let i=0;i<all.length;i++) for(let j=i+1;j<all.length;j++){
+      if(all[i].sid===all[j].sid && Math.abs(all[i].i - all[j].i) !== 0) continue;      // two corners of the same room never merge
+      if(Math.hypot(all[i].x-all[j].x, all[i].y-all[j].y) < TOL) par[find(i)] = find(j); }
+    const idx = new Map(); all.forEach((o,i)=>{ const r = find(i); if(!idx.has(r)){ idx.set(r, nodes.length); nodes.push({x:0, y:0, n:0}); } const q = nodes[idx.get(r)]; q.x += o.x; q.y += o.y; q.n++; at.set(o.key, idx.get(r)); });
+    nodes.forEach(q=>{ q.x /= q.n; q.y /= q.n; }); }
   const segs = [], seen = new Map(), segOf = new Map();     // segOf: "shape:wall" → the wall in the solve (and whether it runs the other way)
   shapes.forEach(sh=>{ for(let k=0;k<sk2SegCount(sh);k++){
     const a = at.get(sh.id+':'+k), b = at.get(sh.id+':'+((k+1)%sh.pts.length)); if(a===b) continue;
@@ -3072,10 +3078,12 @@ function sk2FixAll(plan){
     const m = sh.meas && sh.meas[k]!=null ? +sh.meas[k] : null, key = Math.min(a,b)+'-'+Math.max(a,b);
     if(seen.has(key)){ const o = segs[seen.get(key)]; if(m!=null && o.m==null) o.m = m; segOf.set(sh.id+':'+k, {i:seen.get(key), rev: o.a!==a}); continue; }
     seen.set(key, segs.length); segOf.set(sh.id+':'+k, {i:segs.length, rev:false});
-    const d = {x:(B.x-A.x)/L0, y:(B.y-A.y)/L0}; segs.push({a, b, d, n:{x:-d.y, y:d.x}, L0, m});
+    let d = {x:(B.x-A.x)/L0, y:(B.y-A.y)/L0};
+    if(Math.abs(d.y) < 0.07) d = {x:Math.sign(d.x)||1, y:0}; else if(Math.abs(d.x) < 0.07) d = {x:0, y:Math.sign(d.y)||1};   // within 4° of level/plumb → straight
+    segs.push({a, b, d, n:{x:-d.y, y:d.x}, L0, m});
   } });
   const tees = [];
-  nodes.forEach((P, i)=>segs.forEach(sg=>{ if(sg.a===i || sg.b===i) return; const r = sk2PointSegDist(P, nodes[sg.a], nodes[sg.b]); if(r.d < TOL && r.t > 0.01 && r.t < 0.99) tees.push({p:i, sg}); }));
+  nodes.forEach((P, i)=>segs.forEach(sg=>{ if(sg.a===i || sg.b===i) return; const r = sk2PointSegDist(P, nodes[sg.a], nodes[sg.b]); if(r.d < TOL && r.t > 0.02 && r.t < 0.98) tees.push({p:i, sg}); }));
   // measuring lines: wall-to-wall distances you measured
   const dimC = [];
   (plan.dims||[]).forEach(d=>{ if(d.val==null) return; const A = segOf.get(d.a.sid+':'+d.a.seg), B = segOf.get(d.b.sid+':'+d.b.seg); if(!A || !B || A.i===B.i) return;
@@ -3107,6 +3115,7 @@ function sk2FixAll(plan){
       c = {}; add(c, sg.b, d.x, d.y); add(c, sg.a, -d.x, -d.y);
       if(sg.m!=null && !skip.has('w'+si)) row(c, sg.m, cur ? 1e4 : 1e5); else { c[S] = -sg.L0; row(c, 0, 1); }               // your number / in proportion
     });
+    pin.forEach(si=>{ const sg = segs[si], c = {}; add(c, sg.b, sg.d.x, sg.d.y); add(c, sg.a, -sg.d.x, -sg.d.y); row(c, sg.L0*k0, 1e2); });
     tees.forEach(({p, sg})=>{ const d = dirOf(cur, sg), n = {x:-d.y, y:d.x}; const c = {}; add(c, p, n.x, n.y); add(c, sg.a, -n.x, -n.y); row(c, 0, cur ? 1e5 : 1e8); });
     dimC.forEach((dc, di)=>{ if(skip.has('d'+di)) return; const db = dirOf(cur, dc.sb), n = {x:-db.y, y:db.x};
       const c = {}; add(c, dc.sa.a, (1-dc.t)*n.x, (1-dc.t)*n.y); add(c, dc.sa.b, dc.t*n.x, dc.t*n.y); add(c, dc.sb.a, -n.x, -n.y); row(c, dc.side*dc.val, cur ? 1e4 : 1e5); });
@@ -3119,16 +3128,19 @@ function sk2FixAll(plan){
   const turnOf = (y)=> Math.max(0, ...segs.map(sg=>{ const dx = y[2*sg.b]-y[2*sg.a], dy = y[2*sg.b+1]-y[2*sg.a+1]; const c = Math.max(-1, Math.min(1, (dx*sg.d.x + dy*sg.d.y)/(Math.hypot(dx,dy)||1))); return Math.acos(c)*180/Math.PI; }));
   const flexFrom = (y0, skip)=>{ let y = y0; for(let it=0; it<40; it++){ const z = linsolve(build(y, skip)); if(!z) return null; const mv = Math.max(...Array.from(z).map((v,i)=>Math.abs(v-y[i]))); y = z; if(mv < 0.005) break; } return y; };
   // 1) angles exactly as drawn   2) if needed, nudge angles a little (max 6°)   3) still impossible → keep as many numbers as possible, leave the odd one red
-  let best = null; const skip = new Set(); let skipNow = skip;
+  let best = null; const skip = new Set(); let skipNow = skip; const pin = new Set();
+  const flipped = (y)=> segs.map((sg,i)=> sg.L0 >= 6 && ((y[2*sg.b]-y[2*sg.a])*sg.d.x + (y[2*sg.b+1]-y[2*sg.a+1])*sg.d.y) < 0.5*sg.L0*0.2 ? i : -1).filter(i=>i>=0 && !pin.has(i));
   const total = segs.filter(sg=>sg.m!=null).length + dimC.length;
-  const typos = [];
+  const typos = []; let k0 = 1;
   { const ratios = [];
     segs.forEach((sg,i)=>{ if(sg.m!=null && sg.L0 > 6) ratios.push({k:'w'+i, r:sg.m/sg.L0, val:sg.m}); });
     dimC.forEach((dc,i)=>{ const cur = dimLen(Array.from({length:V}, (_,j)=> j===S ? 1 : (j%2 ? nodes[(j-1)/2].y : nodes[j/2].x)), dc); if(cur > 6) ratios.push({k:'d'+i, r:dc.val/cur, val:dc.val}); });
+    if(ratios.length){ const sr = ratios.map(o=>o.r).sort((a,b)=>a-b); k0 = sr[Math.floor(sr.length/2)]; }
     if(ratios.length >= 3){ const sorted = ratios.map(o=>o.r).sort((a,b)=>a-b), med = sorted[Math.floor(sorted.length/2)];
       ratios.forEach(o=>{ if(o.r > med*3 || o.r < med/3){ skip.add(o.k); typos.push(o.val); } }); } }
-  for(let round=0; round<=total; round++){
+  for(let round=0, tries=0; round<=total && tries < 60; round++, tries++){
     const x0 = linsolve(build(null, skip)); if(!x0) break;
+    if(flips(x0)){ const f = flipped(x0); if(f.length){ f.forEach(i=>pin.add(i)); round--; continue; } }
     let y = x0, off = offList(x0), nudged = 0;
     if(off.length){ const yf = flexFrom(x0, skip); if(yf && !flips(yf)){ const offF = offList(yf), tr = turnOf(yf); if(offF.length < off.length && tr <= 6){ y = yf; off = offF; nudged = tr; } } }
     if(!flips(y) && (!best || off.length < best.off.length)) best = { y, off, nudged };
@@ -13036,7 +13048,7 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
-<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-d</div>
+<div id="app-version" style="position:fixed;right:8px;bottom:4px;font:10px/1 Inter,sans-serif;color:#9a9486;opacity:.8;pointer-events:none;z-index:5;">v2026.11.26-e</div>
 <script>
 /* ================= QUICKBOOKS SYNC (owner only) =================
    Talks to the GSB QuickBooks bridge on Firebase. It never changes the app's own data:
